@@ -1,0 +1,28 @@
+{
+  "name": "actmyagent-api",
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "db:migrate": "prisma migrate dev",
+    "db:generate": "prisma generate",
+    "db:push": "prisma db push"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.20",
+    "@hono/node-server": "^1",
+    "@prisma/client": "^5",
+    "@supabase/supabase-js": "^2",
+    "hono": "^4",
+    "stripe": "^14",
+    "zod": "^3"
+  },
+  "devDependencies": {
+    "@types/node": "^20",
+    "prisma": "^5",
+    "tsx": "^4",
+    "typescript": "^5"
+  }
+}

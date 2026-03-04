@@ -1,0 +1,173 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+enum Role {
+  BUYER
+  AGENT_LISTER
+}
+
+enum JobStatus {
+  OPEN
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+  DISPUTED
+}
+
+enum ProposalStatus {
+  PENDING
+  ACCEPTED
+  REJECTED
+}
+
+enum ContractStatus {
+  DRAFT
+  SIGNED_BUYER
+  SIGNED_AGENT
+  ACTIVE
+  COMPLETED
+  DISPUTED
+}
+
+enum PaymentStatus {
+  PENDING
+  ESCROWED
+  RELEASED
+  REFUNDED
+}
+
+enum DeliveryStatus {
+  SUBMITTED
+  APPROVED
+  DISPUTED
+}
+
+model User {
+  id              String        @id @default(uuid())
+  supabaseId      String        @unique
+  email           String        @unique
+  name            String?
+  role            Role
+  stripeAccountId String?
+  apiKey          String?       @unique @default(uuid())
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+  agentProfile    AgentProfile?
+  jobs            Job[]
+  messages        Message[]
+}
+
+model AgentProfile {
+  id          String     @id @default(uuid())
+  userId      String     @unique
+  user        User       @relation(fields: [userId], references: [id])
+  name        String
+  description String
+  categories  String[]
+  priceFrom   Float
+  priceTo     Float
+  currency    String     @default("USD")
+  webhookUrl  String
+  isVerified  Boolean    @default(false)
+  isActive    Boolean    @default(true)
+  avgRating   Float?
+  totalJobs   Int        @default(0)
+  createdAt   DateTime   @default(now())
+  proposals   Proposal[]
+  contracts   Contract[]
+}
+
+model Job {
+  id          String     @id @default(uuid())
+  buyerId     String
+  buyer       User       @relation(fields: [buyerId], references: [id])
+  title       String
+  description String
+  category    String
+  budget      Float?
+  currency    String     @default("USD")
+  deadline    DateTime?
+  status      JobStatus  @default(OPEN)
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+  proposals   Proposal[]
+  contract    Contract?
+}
+
+model Proposal {
+  id             String         @id @default(uuid())
+  jobId          String
+  job            Job            @relation(fields: [jobId], references: [id])
+  agentProfileId String
+  agentProfile   AgentProfile   @relation(fields: [agentProfileId], references: [id])
+  message        String
+  price          Float
+  currency       String         @default("USD")
+  estimatedDays  Int
+  status         ProposalStatus @default(PENDING)
+  createdAt      DateTime       @default(now())
+  contract       Contract?
+}
+
+model Contract {
+  id             String         @id @default(uuid())
+  jobId          String         @unique
+  job            Job            @relation(fields: [jobId], references: [id])
+  proposalId     String         @unique
+  proposal       Proposal       @relation(fields: [proposalId], references: [id])
+  buyerId        String
+  agentProfileId String
+  agentProfile   AgentProfile   @relation(fields: [agentProfileId], references: [id])
+  scope          String
+  deliverables   String
+  price          Float
+  currency       String         @default("USD")
+  deadline       DateTime
+  status         ContractStatus @default(DRAFT)
+  buyerSignedAt  DateTime?
+  agentSignedAt  DateTime?
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+  messages       Message[]
+  payment        Payment?
+  delivery       Delivery?
+}
+
+model Message {
+  id         String   @id @default(uuid())
+  contractId String
+  contract   Contract @relation(fields: [contractId], references: [id])
+  senderId   String
+  sender     User     @relation(fields: [senderId], references: [id])
+  senderRole Role
+  content    String
+  createdAt  DateTime @default(now())
+}
+
+model Payment {
+  id                    String        @id @default(uuid())
+  contractId            String        @unique
+  contract              Contract      @relation(fields: [contractId], references: [id])
+  stripePaymentIntentId String        @unique
+  amount                Float
+  currency              String        @default("USD")
+  status                PaymentStatus @default(PENDING)
+  createdAt             DateTime      @default(now())
+}
+
+model Delivery {
+  id          String         @id @default(uuid())
+  contractId  String         @unique
+  contract    Contract       @relation(fields: [contractId], references: [id])
+  description String
+  fileUrls    String[]
+  status      DeliveryStatus @default(SUBMITTED)
+  submittedAt DateTime       @default(now())
+}
