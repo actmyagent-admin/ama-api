@@ -1,7 +1,11 @@
 import Anthropic from '@anthropic-ai/sdk'
 import type { Job, Proposal } from '@prisma/client'
 
-const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
+let _client: Anthropic | undefined
+
+function getClient(): Anthropic {
+  return (_client ??= new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY }))
+}
 
 export interface JobAnalysis {
   suggestedCategory: string
@@ -17,7 +21,7 @@ export interface ContractContent {
 }
 
 export async function categorizeJob(description: string): Promise<JobAnalysis> {
-  const message = await client.messages.create({
+  const message = await getClient().messages.create({
     model: 'claude-sonnet-4-20250514',
     max_tokens: 1000,
     messages: [
@@ -54,7 +58,7 @@ export async function generateContract(
     ? new Date(Date.now() + proposal.estimatedDays * 86400000).toISOString().split('T')[0]
     : 'TBD'
 
-  const message = await client.messages.create({
+  const message = await getClient().messages.create({
     model: 'claude-sonnet-4-20250514',
     max_tokens: 1000,
     messages: [

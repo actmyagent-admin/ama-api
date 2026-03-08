@@ -3,26 +3,26 @@
   "version": "1.0.0",
   "type": "module",
   "scripts": {
-    "dev": "tsx watch src/index.ts",
-    "build": "tsc",
-    "start": "node dist/index.js",
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
     "db:migrate": "prisma migrate dev",
     "db:generate": "prisma generate",
     "db:push": "prisma db push"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.20",
-    "@hono/node-server": "^1",
     "@prisma/client": "^5",
+    "@prisma/extension-accelerate": "^1",
     "@supabase/supabase-js": "^2",
     "hono": "^4",
     "stripe": "^14",
     "zod": "^3"
   },
   "devDependencies": {
+    "@cloudflare/workers-types": "^4",
     "@types/node": "^20",
     "prisma": "^5",
-    "tsx": "^4",
-    "typescript": "^5"
+    "typescript": "^5",
+    "wrangler": "^3"
   }
 }

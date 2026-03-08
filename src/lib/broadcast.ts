@@ -1,4 +1,4 @@
-import { createHmac } from 'crypto'
+import { createHmac } from 'node:crypto'
 import type { Job } from '@prisma/client'
 import { prisma } from './prisma.js'
 

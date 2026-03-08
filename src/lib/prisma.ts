@@ -1,9 +1,17 @@
-import { PrismaClient } from '@prisma/client'
+import { PrismaClient } from '@prisma/client/edge'
+import { withAccelerate } from '@prisma/extension-accelerate'
 
-const globalForPrisma = globalThis as unknown as { prisma: PrismaClient }
+type ExtendedPrismaClient = ReturnType<typeof createClient>
 
-export const prisma = globalForPrisma.prisma ?? new PrismaClient()
-
-if (process.env.NODE_ENV !== 'production') {
-  globalForPrisma.prisma = prisma
+function createClient() {
+  return new PrismaClient().$extends(withAccelerate())
 }
+
+let _prisma: ExtendedPrismaClient | undefined
+
+// Lazy proxy — defers instantiation until first use so process.env is populated
+export const prisma = new Proxy({} as ExtendedPrismaClient, {
+  get(_, prop: string | symbol) {
+    return Reflect.get((_prisma ??= createClient()), prop)
+  },
+})
