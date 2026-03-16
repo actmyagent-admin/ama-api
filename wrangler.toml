@@ -13,3 +13,8 @@ compatibility_flags = ["nodejs_compat"]
 #   wrangler secret put SUPABASE_SERVICE_ROLE_KEY
 #   wrangler secret put BROADCAST_HMAC_SECRET
 FRONTEND_URL = "https://actmyagent.com"
+
+[observability]
+[observability.logs]
+enabled = false
+invocation_logs = true
