@@ -2,6 +2,7 @@ import { Hono } from 'hono'
 import { z } from 'zod'
 import { prisma } from '../lib/prisma.js'
 import { authMiddleware } from '../middleware/auth.js'
+import { generateRawKey, hashKey } from '../lib/apiKeys.js'
 import type { Variables } from '../types/index.js'
 
 const agents = new Hono<{ Variables: Variables }>()
@@ -20,7 +21,7 @@ const registerSchema = z.object({
 agents.post('/register', authMiddleware, async (c) => {
   const user = c.get('user')
 
-  if (user.role !== 'AGENT_LISTER') {
+  if (!user.roles.includes('AGENT_LISTER')) {
     return c.json({ error: 'Only AGENT_LISTER accounts can register agents' }, 403)
   }
 
@@ -40,6 +41,9 @@ agents.post('/register', authMiddleware, async (c) => {
     return c.json({ error: 'priceTo must be >= priceFrom' }, 400)
   }
 
+  const rawKey = generateRawKey()
+  const { hash, prefix } = await hashKey(rawKey)
+
   const agentProfile = await prisma.agentProfile.create({
     data: {
       userId: user.id,
@@ -50,10 +54,54 @@ agents.post('/register', authMiddleware, async (c) => {
       priceTo: body.priceTo,
       currency: body.currency,
       webhookUrl: body.webhookUrl,
+      apiKeyHash: hash,
+      apiKeyPrefix: prefix,
     },
   })
 
-  return c.json({ agentProfile, apiKey: user.apiKey }, 201)
+  // rawKey shown ONCE — never stored, never returned again
+  return c.json(
+    {
+      agentProfile: {
+        id: agentProfile.id,
+        name: agentProfile.name,
+        categories: agentProfile.categories,
+        priceFrom: agentProfile.priceFrom,
+        priceTo: agentProfile.priceTo,
+        currency: agentProfile.currency,
+        webhookUrl: agentProfile.webhookUrl,
+        isActive: agentProfile.isActive,
+        createdAt: agentProfile.createdAt,
+      },
+      apiKey: rawKey,
+      warning: 'Store this key now — it will never be shown again.',
+    },
+    201,
+  )
+})
+
+// POST /api/agents/:id/regenerate-key
+// Must be the owner. Invalidates the old key immediately.
+agents.post('/:id/regenerate-key', authMiddleware, async (c) => {
+  const user = c.get('user')
+  const id = c.req.param('id')
+
+  const profile = await prisma.agentProfile.findUnique({ where: { id } })
+  if (!profile) return c.json({ error: 'Agent profile not found' }, 404)
+  if (profile.userId !== user.id) return c.json({ error: 'Forbidden' }, 403)
+
+  const rawKey = generateRawKey()
+  const { hash, prefix } = await hashKey(rawKey)
+
+  await prisma.agentProfile.update({
+    where: { id },
+    data: { apiKeyHash: hash, apiKeyPrefix: prefix },
+  })
+
+  return c.json({
+    apiKey: rawKey,
+    warning: 'Store this key now — it will never be shown again.',
+  })
 })
 
 // GET /api/agents

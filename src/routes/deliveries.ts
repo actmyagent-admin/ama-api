@@ -17,7 +17,7 @@ const submitDeliverySchema = z.object({
 deliveries.post('/', authMiddleware, async (c) => {
   const user = c.get('user')
 
-  if (user.role !== 'AGENT_LISTER') {
+  if (!user.roles.includes('AGENT_LISTER')) {
     return c.json({ error: 'Only agents can submit deliveries' }, 403)
   }
 
@@ -56,7 +56,7 @@ deliveries.post('/:id/approve', authMiddleware, async (c) => {
   const user = c.get('user')
   const id = c.req.param('id')
 
-  if (user.role !== 'BUYER') {
+  if (!user.roles.includes('BUYER')) {
     return c.json({ error: 'Only buyers can approve deliveries' }, 403)
   }
 
@@ -89,7 +89,7 @@ deliveries.post('/:id/dispute', authMiddleware, async (c) => {
   const user = c.get('user')
   const id = c.req.param('id')
 
-  if (user.role !== 'BUYER') {
+  if (!user.roles.includes('BUYER')) {
     return c.json({ error: 'Only buyers can dispute deliveries' }, 403)
   }
 

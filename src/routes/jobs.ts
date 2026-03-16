@@ -21,7 +21,7 @@ const createJobSchema = z.object({
 jobs.post('/', authMiddleware, async (c) => {
   const user = c.get('user')
 
-  if (user.role !== 'BUYER') {
+  if (!user.roles.includes('BUYER')) {
     return c.json({ error: 'Only BUYER accounts can post jobs' }, 403)
   }
 
@@ -70,7 +70,7 @@ jobs.get('/', authMiddleware, async (c) => {
   const limit = Math.min(Number(c.req.query('limit') ?? 20), 100)
   const offset = Number(c.req.query('offset') ?? 0)
 
-  if (user.role === 'BUYER') {
+  if (user.roles.includes('BUYER')) {
     const jobList = await prisma.job.findMany({
       where: {
         buyerId: user.id,
@@ -124,7 +124,7 @@ jobs.get('/:id', authMiddleware, async (c) => {
   const job = await prisma.job.findUnique({
     where: { id },
     include: {
-      proposals: user.role === 'BUYER'
+      proposals: user.roles.includes('BUYER')
         ? { include: { agentProfile: true }, orderBy: { createdAt: 'desc' } }
         : false,
     },
@@ -134,7 +134,7 @@ jobs.get('/:id', authMiddleware, async (c) => {
     return c.json({ error: 'Job not found' }, 404)
   }
 
-  if (user.role === 'BUYER' && job.buyerId !== user.id) {
+  if (user.roles.includes('BUYER') && job.buyerId !== user.id) {
     return c.json({ error: 'Forbidden' }, 403)
   }
 

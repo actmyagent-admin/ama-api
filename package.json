@@ -5,22 +5,32 @@
   "scripts": {
     "dev": "wrangler dev",
     "deploy": "wrangler deploy",
-    "db:migrate": "prisma migrate dev",
     "db:generate": "prisma generate",
-    "db:push": "prisma db push"
+    "db:push": "dotenv -e .env -- prisma db push",
+    "db:migrate": "dotenv -e .env -- prisma migrate dev",
+    "db:migrate:prod": "dotenv -e .env.prod -- prisma migrate deploy",
+    "db:push:prod": "dotenv -e .env.prod -- prisma db push",
+    "db:studio": "dotenv -e .env -- prisma studio",
+    "db:studio:prod": "dotenv -e .env.prod -- prisma studio",
+    "cf-typegen": "wrangler types"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.20",
+    "@prisma/adapter-pg": "^5",
     "@prisma/client": "^5",
-    "@prisma/extension-accelerate": "^1",
     "@supabase/supabase-js": "^2",
+    "bcryptjs": "^3.0.3",
     "hono": "^4",
+    "pg": "^8",
     "stripe": "^14",
     "zod": "^3"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^4",
+    "@types/bcryptjs": "^2.4.6",
     "@types/node": "^20",
+    "@types/pg": "^8",
+    "dotenv-cli": "^7",
     "prisma": "^5",
     "typescript": "^5",
     "wrangler": "^3"

@@ -26,7 +26,7 @@ proposals.post('/', async (c, next) => {
 }, async (c) => {
   const user = c.get('user')
 
-  if (user.role !== 'AGENT_LISTER') {
+  if (!user.roles.includes('AGENT_LISTER')) {
     return c.json({ error: 'Only AGENT_LISTER accounts can submit proposals' }, 403)
   }
 
@@ -70,7 +70,7 @@ proposals.get('/job/:jobId', authMiddleware, async (c) => {
   const user = c.get('user')
   const jobId = c.req.param('jobId')
 
-  if (user.role !== 'BUYER') {
+  if (!user.roles.includes('BUYER')) {
     return c.json({ error: 'Only buyers can view proposals' }, 403)
   }
 
@@ -92,7 +92,7 @@ proposals.post('/:id/accept', authMiddleware, async (c) => {
   const user = c.get('user')
   const id = c.req.param('id')
 
-  if (user.role !== 'BUYER') {
+  if (!user.roles.includes('BUYER')) {
     return c.json({ error: 'Only buyers can accept proposals' }, 403)
   }
 

@@ -1,5 +1,6 @@
 generator client {
-  provider = "prisma-client-js"
+  provider        = "prisma-client-js"
+  previewFeatures = ["driverAdapters"]
 }
 
 datasource db {
@@ -50,38 +51,45 @@ enum DeliveryStatus {
 }
 
 model User {
-  id              String        @id @default(uuid())
-  supabaseId      String        @unique
-  email           String        @unique
-  name            String?
-  role            Role
+  id             String        @id @default(uuid())
+  supabaseId     String        @unique
+  email          String        @unique
+  userName       String        @unique
+  name           String?
+  mainPic        String?
+  coverPic       String?
+  roles          Role[]
   stripeAccountId String?
-  apiKey          String?       @unique @default(uuid())
-  createdAt       DateTime      @default(now())
-  updatedAt       DateTime      @updatedAt
-  agentProfile    AgentProfile?
-  jobs            Job[]
-  messages        Message[]
+  isActive       Boolean       @default(true)
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+  agentProfile   AgentProfile?
+  jobs           Job[]
+  messages       Message[]
 }
 
 model AgentProfile {
-  id          String     @id @default(uuid())
-  userId      String     @unique
-  user        User       @relation(fields: [userId], references: [id])
-  name        String
-  description String
-  categories  String[]
-  priceFrom   Float
-  priceTo     Float
-  currency    String     @default("USD")
-  webhookUrl  String
-  isVerified  Boolean    @default(false)
-  isActive    Boolean    @default(true)
-  avgRating   Float?
-  totalJobs   Int        @default(0)
-  createdAt   DateTime   @default(now())
-  proposals   Proposal[]
-  contracts   Contract[]
+  id            String     @id @default(uuid())
+  userId        String     @unique
+  user          User       @relation(fields: [userId], references: [id])
+  name          String
+  description   String
+  categories    String[]
+  priceFrom     Float
+  priceTo       Float
+  currency      String     @default("USD")
+  webhookUrl    String
+  // API key: only the bcrypt hash is stored; raw key shown once at registration
+  apiKeyHash    String?
+  // First 8 chars of raw key stored unencrypted for fast lookup (filter by prefix, then bcrypt compare)
+  apiKeyPrefix  String?
+  isVerified    Boolean    @default(false)
+  isActive      Boolean    @default(true)
+  avgRating     Float?
+  totalJobs     Int        @default(0)
+  createdAt     DateTime   @default(now())
+  proposals     Proposal[]
+  contracts     Contract[]
 }
 
 model Job {
@@ -95,6 +103,7 @@ model Job {
   currency    String     @default("USD")
   deadline    DateTime?
   status      JobStatus  @default(OPEN)
+  isActive    Boolean    @default(true)
   createdAt   DateTime   @default(now())
   updatedAt   DateTime   @updatedAt
   proposals   Proposal[]
@@ -112,6 +121,7 @@ model Proposal {
   currency       String         @default("USD")
   estimatedDays  Int
   status         ProposalStatus @default(PENDING)
+  isActive       Boolean        @default(true)
   createdAt      DateTime       @default(now())
   contract       Contract?
 }
@@ -133,6 +143,7 @@ model Contract {
   status         ContractStatus @default(DRAFT)
   buyerSignedAt  DateTime?
   agentSignedAt  DateTime?
+  isActive       Boolean        @default(true)
   createdAt      DateTime       @default(now())
   updatedAt      DateTime       @updatedAt
   messages       Message[]

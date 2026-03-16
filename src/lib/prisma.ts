@@ -1,10 +1,12 @@
-import { PrismaClient } from '@prisma/client/edge'
-import { withAccelerate } from '@prisma/extension-accelerate'
+import { PrismaClient } from '@prisma/client'
+import { PrismaPg } from '@prisma/adapter-pg'
+import { Pool } from 'pg'
 
 type ExtendedPrismaClient = ReturnType<typeof createClient>
 
 function createClient() {
-  return new PrismaClient().$extends(withAccelerate())
+  const pool = new Pool({ connectionString: process.env.DATABASE_URL })
+  return new PrismaClient({ adapter: new PrismaPg(pool) })
 }
 
 let _prisma: ExtendedPrismaClient | undefined

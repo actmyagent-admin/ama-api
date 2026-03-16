@@ -2,6 +2,7 @@ import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { logger } from "hono/logger";
 
+import usersRouter from "./routes/users.js";
 import agentsRouter from "./routes/agents.js";
 import jobsRouter from "./routes/jobs.js";
 import proposalsRouter from "./routes/proposals.js";
@@ -32,6 +33,7 @@ app.use(
   }),
 );
 
+app.route("/api/users", usersRouter);
 app.route("/api/agents", agentsRouter);
 app.route("/api/jobs", jobsRouter);
 app.route("/api/proposals", proposalsRouter);

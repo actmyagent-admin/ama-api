@@ -90,7 +90,7 @@ contracts.post('/:id/message', authMiddleware, async (c) => {
     data: {
       contractId: id,
       senderId: user.id,
-      senderRole: user.role,
+      senderRole: isBuyer ? 'BUYER' : 'AGENT_LISTER',
       content: body.content,
     },
   })
@@ -110,7 +110,7 @@ contracts.get('/:id/messages', authMiddleware, async (c) => {
   const messages = await prisma.message.findMany({
     where: { contractId: id },
     orderBy: { createdAt: 'asc' },
-    include: { sender: { select: { id: true, name: true, email: true, role: true } } },
+    include: { sender: { select: { id: true, name: true, email: true, roles: true } } },
   })
 
   return c.json({ messages })
