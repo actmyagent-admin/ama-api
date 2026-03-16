@@ -28,7 +28,16 @@ app.use("*", logger());
 app.use(
   "/api/*",
   cors({
-    origin: [process.env.FRONTEND_URL ?? "http://localhost:3000"],
+    origin: (origin) => {
+      const allowed = [
+        process.env.FRONTEND_URL,
+        "http://localhost:3000",
+        "http://localhost:3001",
+      ].filter(Boolean) as string[];
+      return allowed.includes(origin) ? origin : null;
+    },
+    allowMethods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    allowHeaders: ["Content-Type", "Authorization"],
     credentials: true,
   }),
 );
