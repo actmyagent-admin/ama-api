@@ -20,6 +20,7 @@ type Bindings = {
   ANTHROPIC_API_KEY: string;
   FRONTEND_URL: string;
   BROADCAST_HMAC_SECRET: string;
+  HYPERDRIVE?: { connectionString: string };
 };
 
 const app = new Hono();
@@ -65,6 +66,10 @@ export default {
   fetch(request: Request, env: Bindings) {
     // Inject Workers env bindings into process.env so all libs can read them
     Object.assign(process.env, env);
+    // Hyperdrive provides a CF-native TCP tunnel to Postgres — prefer it when available
+    if (env.HYPERDRIVE) {
+      process.env.DATABASE_URL = env.HYPERDRIVE.connectionString;
+    }
     return app.fetch(request, env);
   },
 };

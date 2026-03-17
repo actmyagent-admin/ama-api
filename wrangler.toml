@@ -3,6 +3,10 @@ main = "src/index.ts"
 compatibility_date = "2024-09-23"
 compatibility_flags = ["nodejs_compat"]
 
+[[hyperdrive]]
+binding = "HYPERDRIVE"
+id = "07c83f39eae84887ab1f316ffedfa65a"
+
 [vars]
 # Non-sensitive vars can go here; secrets must be set via:
 #   wrangler secret put STRIPE_SECRET_KEY
