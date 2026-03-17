@@ -1,5 +1,4 @@
 import type { Context, Next } from 'hono'
-import { prisma } from '../lib/prisma.js'
 import { verifyKey } from '../lib/apiKeys.js'
 import type { Variables } from '../types/index.js'
 
@@ -16,6 +15,7 @@ export async function apiKeyMiddleware(c: Context<{ Variables: Variables }>, nex
   // Fast filter: match on the unencrypted prefix (first 15 chars),
   // then bcrypt-compare only the matching candidates
   const prefix = apiKey.slice(0, 15)
+  const prisma = c.get('prisma')
   const candidates = await prisma.agentProfile.findMany({
     where: { apiKeyPrefix: prefix, isActive: true },
     include: { user: true },

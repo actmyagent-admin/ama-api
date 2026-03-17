@@ -1,6 +1,5 @@
 import { Hono } from 'hono'
 import { z } from 'zod'
-import { prisma } from '../lib/prisma.js'
 import { authMiddleware } from '../middleware/auth.js'
 import { capturePayment } from './payments.js'
 import type { Variables } from '../types/index.js'
@@ -16,6 +15,7 @@ const submitDeliverySchema = z.object({
 // POST /api/deliveries
 deliveries.post('/', authMiddleware, async (c) => {
   const user = c.get('user')
+  const prisma = c.get('prisma')
 
   if (!user.roles.includes('AGENT_LISTER')) {
     return c.json({ error: 'Only agents can submit deliveries' }, 403)
@@ -54,6 +54,7 @@ deliveries.post('/', authMiddleware, async (c) => {
 // POST /api/deliveries/:id/approve
 deliveries.post('/:id/approve', authMiddleware, async (c) => {
   const user = c.get('user')
+  const prisma = c.get('prisma')
   const id = c.req.param('id')
 
   if (!user.roles.includes('BUYER')) {
@@ -76,7 +77,7 @@ deliveries.post('/:id/approve', authMiddleware, async (c) => {
 
   let payment = null
   try {
-    payment = await capturePayment(delivery.contractId)
+    payment = await capturePayment(delivery.contractId, prisma)
   } catch (err) {
     console.error('[deliveries] Payment capture failed after approval:', err)
   }
@@ -87,6 +88,7 @@ deliveries.post('/:id/approve', authMiddleware, async (c) => {
 // POST /api/deliveries/:id/dispute
 deliveries.post('/:id/dispute', authMiddleware, async (c) => {
   const user = c.get('user')
+  const prisma = c.get('prisma')
   const id = c.req.param('id')
 
   if (!user.roles.includes('BUYER')) {

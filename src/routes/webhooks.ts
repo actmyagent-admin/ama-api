@@ -1,8 +1,8 @@
 import { Hono } from 'hono'
 import { stripe } from '../lib/stripe.js'
-import { prisma } from '../lib/prisma.js'
+import type { Variables } from '../types/index.js'
 
-const webhooks = new Hono()
+const webhooks = new Hono<{ Variables: Variables }>()
 
 // POST /api/webhooks/stripe
 // Must receive raw body for signature verification — no body parsing middleware
@@ -22,6 +22,8 @@ webhooks.post('/stripe', async (c) => {
     console.error('[webhooks] Stripe signature verification failed:', err)
     return c.json({ error: 'Invalid signature' }, 400)
   }
+
+  const prisma = c.get('prisma')
 
   try {
     switch (event.type) {

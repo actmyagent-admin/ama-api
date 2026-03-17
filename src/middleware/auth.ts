@@ -1,6 +1,5 @@
 import type { Context, Next } from 'hono'
 import { supabase } from '../lib/supabase.js'
-import { prisma } from '../lib/prisma.js'
 import type { Variables } from '../types/index.js'
 
 export async function authMiddleware(c: Context<{ Variables: Variables }>, next: Next) {
@@ -15,6 +14,7 @@ export async function authMiddleware(c: Context<{ Variables: Variables }>, next:
     return c.json({ error: 'Unauthorized' }, 401)
   }
 
+  const prisma = c.get('prisma')
   const user = await prisma.user.findUnique({
     where: { supabaseId: data.user.id },
   })

@@ -1,6 +1,5 @@
 import { Hono } from 'hono'
 import { z } from 'zod'
-import { prisma } from '../lib/prisma.js'
 import { authMiddleware } from '../middleware/auth.js'
 import { categorizeJob } from '../lib/anthropic.js'
 import { broadcastJob } from '../lib/broadcast.js'
@@ -20,6 +19,7 @@ const createJobSchema = z.object({
 // POST /api/jobs
 jobs.post('/', authMiddleware, async (c) => {
   const user = c.get('user')
+  const prisma = c.get('prisma')
 
   if (!user.roles.includes('BUYER')) {
     return c.json({ error: 'Only BUYER accounts can post jobs' }, 403)
@@ -54,7 +54,7 @@ jobs.post('/', authMiddleware, async (c) => {
 
   let broadcastCount = 0
   try {
-    broadcastCount = await broadcastJob(job)
+    broadcastCount = await broadcastJob(job, prisma)
   } catch (err) {
     console.error('[jobs] Broadcast failed:', err)
   }
@@ -65,6 +65,7 @@ jobs.post('/', authMiddleware, async (c) => {
 // GET /api/jobs
 jobs.get('/', authMiddleware, async (c) => {
   const user = c.get('user')
+  const prisma = c.get('prisma')
   const category = c.req.query('category')
   const status = c.req.query('status')
   const limit = Math.min(Number(c.req.query('limit') ?? 20), 100)
@@ -119,6 +120,7 @@ jobs.get('/', authMiddleware, async (c) => {
 // GET /api/jobs/:id
 jobs.get('/:id', authMiddleware, async (c) => {
   const user = c.get('user')
+  const prisma = c.get('prisma')
   const id = c.req.param('id')
 
   const job = await prisma.job.findUnique({

@@ -1,6 +1,5 @@
 import { Hono } from 'hono'
 import { z } from 'zod'
-import { prisma } from '../lib/prisma.js'
 import { authMiddleware } from '../middleware/auth.js'
 import { generateRawKey, hashKey } from '../lib/apiKeys.js'
 import type { Variables } from '../types/index.js'
@@ -20,6 +19,7 @@ const registerSchema = z.object({
 // POST /api/agents/register
 agents.post('/register', authMiddleware, async (c) => {
   const user = c.get('user')
+  const prisma = c.get('prisma')
 
   if (!user.roles.includes('AGENT_LISTER')) {
     return c.json({ error: 'Only AGENT_LISTER accounts can register agents' }, 403)
@@ -84,6 +84,7 @@ agents.post('/register', authMiddleware, async (c) => {
 // Must be the owner. Invalidates the old key immediately.
 agents.post('/:id/regenerate-key', authMiddleware, async (c) => {
   const user = c.get('user')
+  const prisma = c.get('prisma')
   const id = c.req.param('id')
 
   const profile = await prisma.agentProfile.findUnique({ where: { id } })
@@ -106,6 +107,7 @@ agents.post('/:id/regenerate-key', authMiddleware, async (c) => {
 
 // GET /api/agents
 agents.get('/', async (c) => {
+  const prisma = c.get('prisma')
   const category = c.req.query('category')
   const limit = Math.min(Number(c.req.query('limit') ?? 20), 100)
   const offset = Number(c.req.query('offset') ?? 0)
@@ -138,6 +140,7 @@ agents.get('/', async (c) => {
 
 // GET /api/agents/:id
 agents.get('/:id', async (c) => {
+  const prisma = c.get('prisma')
   const id = c.req.param('id')
   const agentProfile = await prisma.agentProfile.findUnique({
     where: { id },

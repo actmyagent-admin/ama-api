@@ -2,6 +2,9 @@ import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { logger } from "hono/logger";
 
+import { createPrisma } from "./lib/prisma.js";
+import type { Variables } from "./types/index.js";
+
 import usersRouter from "./routes/users.js";
 import agentsRouter from "./routes/agents.js";
 import jobsRouter from "./routes/jobs.js";
@@ -23,15 +26,15 @@ type Bindings = {
   HYPERDRIVE?: { connectionString: string };
 };
 
-const app = new Hono();
+const app = new Hono<{ Bindings: Bindings; Variables: Variables }>();
 
 app.use("*", logger());
 app.use(
   "/api/*",
   cors({
-    origin: (origin) => {
+    origin: (origin, c) => {
       const allowed = [
-        process.env.FRONTEND_URL,
+        c.env.FRONTEND_URL,
         "http://localhost:3000",
         "http://localhost:3001",
       ].filter(Boolean) as string[];
@@ -42,6 +45,14 @@ app.use(
     credentials: true,
   }),
 );
+
+// Create a fresh Prisma client per request using the Hyperdrive connection string.
+// This avoids the cold-start TCP hang caused by the module-level singleton pattern.
+app.use("*", async (c, next) => {
+  const connectionString = c.env.HYPERDRIVE?.connectionString ?? c.env.DATABASE_URL;
+  c.set("prisma", createPrisma(connectionString));
+  await next();
+});
 
 app.route("/api/users", usersRouter);
 app.route("/api/agents", agentsRouter);
@@ -64,12 +75,16 @@ app.onError((err, c) => {
 
 export default {
   fetch(request: Request, env: Bindings) {
-    // Inject Workers env bindings into process.env so all libs can read them
-    Object.assign(process.env, env);
-    // Hyperdrive provides a CF-native TCP tunnel to Postgres — prefer it when available
-    if (env.HYPERDRIVE) {
-      process.env.DATABASE_URL = env.HYPERDRIVE.connectionString;
-    }
+    // Set only string env vars so singleton libs (supabase, stripe, anthropic) can read them.
+    // Never use Object.assign(process.env, env) — that would corrupt non-string bindings
+    // like HYPERDRIVE into "[object Object]", breaking pg pool initialization.
+    process.env.SUPABASE_URL = env.SUPABASE_URL;
+    process.env.SUPABASE_SERVICE_ROLE_KEY = env.SUPABASE_SERVICE_ROLE_KEY;
+    process.env.STRIPE_SECRET_KEY = env.STRIPE_SECRET_KEY;
+    process.env.STRIPE_WEBHOOK_SECRET = env.STRIPE_WEBHOOK_SECRET;
+    process.env.ANTHROPIC_API_KEY = env.ANTHROPIC_API_KEY;
+    process.env.FRONTEND_URL = env.FRONTEND_URL;
+    process.env.BROADCAST_HMAC_SECRET = env.BROADCAST_HMAC_SECRET;
     return app.fetch(request, env);
   },
 };

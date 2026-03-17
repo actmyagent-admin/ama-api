@@ -1,11 +1,12 @@
 name = "ama-api"
 main = "src/index.ts"
 compatibility_date = "2024-09-23"
-compatibility_flags = ["nodejs_compat"]
+compatibility_flags = ["nodejs_compat_v2"]
 
 [[hyperdrive]]
 binding = "HYPERDRIVE"
 id = "07c83f39eae84887ab1f316ffedfa65a"
+localConnectionString = "postgresql://postgres.htjnhhqokabiqspnnpdw:Aw9SnuFUw889DDVnn32DHSKDHkIPLW9z6N@aws-1-us-east-1.pooler.supabase.com:6543/postgres"
 
 [vars]
 # Non-sensitive vars can go here; secrets must be set via:

@@ -1,9 +1,9 @@
 import { Hono } from 'hono'
 import { z } from 'zod'
-import { prisma } from '../lib/prisma.js'
 import { stripe } from '../lib/stripe.js'
 import { authMiddleware } from '../middleware/auth.js'
 import type { Variables } from '../types/index.js'
+import type { PrismaClient } from '@prisma/client'
 
 const payments = new Hono<{ Variables: Variables }>()
 
@@ -14,6 +14,7 @@ const createPaymentSchema = z.object({
 // POST /api/payments/create
 payments.post('/create', authMiddleware, async (c) => {
   const user = c.get('user')
+  const prisma = c.get('prisma')
 
   if (user.role !== 'BUYER') {
     return c.json({ error: 'Only buyers can initiate payments' }, 403)
@@ -66,8 +67,8 @@ payments.post('/create', authMiddleware, async (c) => {
   return c.json({ clientSecret: paymentIntent.client_secret }, 201)
 })
 
-// POST /api/payments/capture (called internally after delivery approval)
-export async function capturePayment(contractId: string) {
+// Called internally after delivery approval
+export async function capturePayment(contractId: string, prisma: PrismaClient) {
   const payment = await prisma.payment.findUnique({ where: { contractId } })
   if (!payment) throw new Error('Payment not found')
   if (payment.status === 'RELEASED') return payment
@@ -90,6 +91,7 @@ export async function capturePayment(contractId: string) {
 
 payments.post('/capture', authMiddleware, async (c) => {
   const user = c.get('user')
+  const prisma = c.get('prisma')
 
   let body: z.infer<typeof createPaymentSchema>
   try {
@@ -103,7 +105,7 @@ payments.post('/capture', authMiddleware, async (c) => {
   if (contract.buyerId !== user.id) return c.json({ error: 'Forbidden' }, 403)
 
   try {
-    const payment = await capturePayment(body.contractId)
+    const payment = await capturePayment(body.contractId, prisma)
     return c.json({ payment })
   } catch (err) {
     return c.json({ error: 'Payment capture failed', details: String(err) }, 500)

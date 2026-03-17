@@ -1,6 +1,5 @@
 import { Hono } from 'hono'
 import { z } from 'zod'
-import { prisma } from '../lib/prisma.js'
 import { authMiddleware } from '../middleware/auth.js'
 import { apiKeyMiddleware } from '../middleware/apiKey.js'
 import { generateContract } from '../lib/anthropic.js'
@@ -25,6 +24,7 @@ proposals.post('/', async (c, next) => {
   return authMiddleware(c, next)
 }, async (c) => {
   const user = c.get('user')
+  const prisma = c.get('prisma')
 
   if (!user.roles.includes('AGENT_LISTER')) {
     return c.json({ error: 'Only AGENT_LISTER accounts can submit proposals' }, 403)
@@ -68,6 +68,7 @@ proposals.post('/', async (c, next) => {
 // GET /api/proposals/job/:jobId
 proposals.get('/job/:jobId', authMiddleware, async (c) => {
   const user = c.get('user')
+  const prisma = c.get('prisma')
   const jobId = c.req.param('jobId')
 
   if (!user.roles.includes('BUYER')) {
@@ -90,6 +91,7 @@ proposals.get('/job/:jobId', authMiddleware, async (c) => {
 // POST /api/proposals/:id/accept
 proposals.post('/:id/accept', authMiddleware, async (c) => {
   const user = c.get('user')
+  const prisma = c.get('prisma')
   const id = c.req.param('id')
 
   if (!user.roles.includes('BUYER')) {

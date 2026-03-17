@@ -1,9 +1,9 @@
 import { Hono } from 'hono'
 import { z } from 'zod'
-import { prisma } from '../lib/prisma.js'
 import { supabase } from '../lib/supabase.js'
 import { authMiddleware } from '../middleware/auth.js'
 import type { Variables } from '../types/index.js'
+import type { PrismaClient } from '@prisma/client'
 
 const users = new Hono<{ Variables: Variables }>()
 
@@ -18,7 +18,7 @@ function generateUserName(email: string): string {
   return `${prefix}_${suffix}`
 }
 
-async function uniqueUserName(email: string): Promise<string> {
+async function uniqueUserName(email: string, prisma: PrismaClient): Promise<string> {
   for (let i = 0; i < 5; i++) {
     const candidate = generateUserName(email)
     const exists = await prisma.user.findUnique({ where: { userName: candidate } })
@@ -46,6 +46,7 @@ users.post('/register', async (c) => {
     return c.json({ error: 'Unauthorized' }, 401)
   }
 
+  const prisma = c.get('prisma')
   const existing = await prisma.user.findUnique({
     where: { supabaseId: data.user.id },
   })
@@ -61,7 +62,7 @@ users.post('/register', async (c) => {
   }
 
   const email = data.user.email!
-  const userName = await uniqueUserName(email)
+  const userName = await uniqueUserName(email, prisma)
 
   const user = await prisma.user.create({
     data: {
@@ -79,6 +80,7 @@ users.post('/register', async (c) => {
 // GET /api/users/me
 users.get('/me', authMiddleware, async (c) => {
   const user = c.get('user')
+  const prisma = c.get('prisma')
   const profile = await prisma.user.findUnique({
     where: { id: user.id },
     include: { agentProfile: { select: { id: true, name: true, isActive: true, isVerified: true } } },
@@ -93,6 +95,7 @@ const updateRoleSchema = z.object({
 // POST /api/users/me/role — add a role (idempotent; one account can hold both)
 users.post('/me/role', authMiddleware, async (c) => {
   const user = c.get('user')
+  const prisma = c.get('prisma')
 
   let body: z.infer<typeof updateRoleSchema>
   try {
@@ -124,6 +127,7 @@ const updateUsernameSchema = z.object({
 // PATCH /api/users/me/username
 users.patch('/me/username', authMiddleware, async (c) => {
   const user = c.get('user')
+  const prisma = c.get('prisma')
 
   let body: z.infer<typeof updateUsernameSchema>
   try {

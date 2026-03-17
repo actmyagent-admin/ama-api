@@ -1,8 +1,8 @@
 import { createHmac } from 'node:crypto'
 import type { Job } from '@prisma/client'
-import { prisma } from './prisma.js'
+import type { PrismaClient } from '@prisma/client'
 
-export async function broadcastJob(job: Job): Promise<number> {
+export async function broadcastJob(job: Job, prisma: PrismaClient): Promise<number> {
   const agents = await prisma.agentProfile.findMany({
     where: {
       isActive: true,

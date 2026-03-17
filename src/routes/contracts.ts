@@ -1,12 +1,12 @@
 import { Hono } from 'hono'
 import { z } from 'zod'
-import { prisma } from '../lib/prisma.js'
 import { authMiddleware } from '../middleware/auth.js'
 import type { Variables } from '../types/index.js'
+import type { PrismaClient } from '@prisma/client'
 
 const contracts = new Hono<{ Variables: Variables }>()
 
-async function getContractAndCheckAccess(contractId: string, userId: string) {
+async function getContractAndCheckAccess(prisma: PrismaClient, contractId: string, userId: string) {
   const contract = await prisma.contract.findUnique({
     where: { id: contractId },
     include: {
@@ -27,9 +27,10 @@ async function getContractAndCheckAccess(contractId: string, userId: string) {
 // GET /api/contracts/:id
 contracts.get('/:id', authMiddleware, async (c) => {
   const user = c.get('user')
+  const prisma = c.get('prisma')
   const id = c.req.param('id')
 
-  const { contract, isBuyer, isAgent } = await getContractAndCheckAccess(id, user.id)
+  const { contract, isBuyer, isAgent } = await getContractAndCheckAccess(prisma, id, user.id)
   if (!contract) return c.json({ error: 'Contract not found' }, 404)
   if (!isBuyer && !isAgent) return c.json({ error: 'Forbidden' }, 403)
 
@@ -39,9 +40,10 @@ contracts.get('/:id', authMiddleware, async (c) => {
 // POST /api/contracts/:id/sign
 contracts.post('/:id/sign', authMiddleware, async (c) => {
   const user = c.get('user')
+  const prisma = c.get('prisma')
   const id = c.req.param('id')
 
-  const { contract, isBuyer, isAgent } = await getContractAndCheckAccess(id, user.id)
+  const { contract, isBuyer, isAgent } = await getContractAndCheckAccess(prisma, id, user.id)
   if (!contract) return c.json({ error: 'Contract not found' }, 404)
   if (!isBuyer && !isAgent) return c.json({ error: 'Forbidden' }, 403)
 
@@ -73,9 +75,10 @@ const messageSchema = z.object({
 // POST /api/contracts/:id/message
 contracts.post('/:id/message', authMiddleware, async (c) => {
   const user = c.get('user')
+  const prisma = c.get('prisma')
   const id = c.req.param('id')
 
-  const { contract, isBuyer, isAgent } = await getContractAndCheckAccess(id, user.id)
+  const { contract, isBuyer, isAgent } = await getContractAndCheckAccess(prisma, id, user.id)
   if (!contract) return c.json({ error: 'Contract not found' }, 404)
   if (!isBuyer && !isAgent) return c.json({ error: 'Forbidden' }, 403)
 
@@ -101,9 +104,10 @@ contracts.post('/:id/message', authMiddleware, async (c) => {
 // GET /api/contracts/:id/messages
 contracts.get('/:id/messages', authMiddleware, async (c) => {
   const user = c.get('user')
+  const prisma = c.get('prisma')
   const id = c.req.param('id')
 
-  const { contract, isBuyer, isAgent } = await getContractAndCheckAccess(id, user.id)
+  const { contract, isBuyer, isAgent } = await getContractAndCheckAccess(prisma, id, user.id)
   if (!contract) return c.json({ error: 'Contract not found' }, 404)
   if (!isBuyer && !isAgent) return c.json({ error: 'Forbidden' }, 403)
 
