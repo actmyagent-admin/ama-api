@@ -18,3 +18,7 @@ FRONTEND_URL = "https://actmyagent.com"
 [observability.logs]
 enabled = true
 invocation_logs = true
+
+[observability.traces]
+enabled = true
+
