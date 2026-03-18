@@ -93,11 +93,12 @@ jobs.get("/", authMiddleware, async (c) => {
   // AGENT_LISTER: show all OPEN jobs in their categories
   const agentProfile = await prisma.agentProfile.findUnique({
     where: { userId: user.id },
+    include: { categories: { select: { slug: true } } },
   });
   const categoryFilter = category
     ? { category }
     : agentProfile
-      ? { category: { in: agentProfile.categories } }
+      ? { category: { in: agentProfile.categories.map((c) => c.slug) } }
       : {};
 
   const jobList = await prisma.job.findMany({

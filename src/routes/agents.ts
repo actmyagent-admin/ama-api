@@ -9,12 +9,43 @@ const agents = new Hono<{ Variables: Variables }>()
 const registerSchema = z.object({
   name: z.string().min(1),
   description: z.string().min(1),
-  categories: z.array(z.string()).min(1),
+  // Array of Category slugs e.g. ["development", "design"]
+  categorySlugs: z.array(z.string()).min(1),
   priceFrom: z.number().positive(),
   priceTo: z.number().positive(),
   currency: z.string().default('USD'),
   webhookUrl: z.string().url(),
 })
+
+function toSlug(name: string): string {
+  return name
+    .toLowerCase()
+    .trim()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-|-$/g, '')
+}
+
+async function generateUniqueSlug(
+  name: string,
+  prisma: ReturnType<typeof import('../lib/prisma.js').createPrisma>,
+): Promise<string> {
+  const base = toSlug(name)
+  let slug = base
+  let n = 1
+  // findFirst works before Prisma client is regenerated with the new slug unique index
+  while (await prisma.agentProfile.findFirst({ where: { slug } })) {
+    slug = `${base}-${n++}`
+  }
+  return slug
+}
+
+const categorySelect = {
+  id: true,
+  name: true,
+  slug: true,
+  mainPic: true,
+  coverPic: true,
+} as const
 
 // POST /api/agents/register
 agents.post('/register', authMiddleware, async (c) => {
@@ -43,13 +74,15 @@ agents.post('/register', authMiddleware, async (c) => {
 
   const rawKey = generateRawKey()
   const { hash, prefix } = await hashKey(rawKey)
+  const slug = await generateUniqueSlug(body.name, prisma)
 
   const agentProfile = await prisma.agentProfile.create({
     data: {
       userId: user.id,
       name: body.name,
+      slug,
       description: body.description,
-      categories: body.categories,
+      categories: { connect: body.categorySlugs.map((s) => ({ slug: s })) },
       priceFrom: body.priceFrom,
       priceTo: body.priceTo,
       currency: body.currency,
@@ -57,6 +90,7 @@ agents.post('/register', authMiddleware, async (c) => {
       apiKeyHash: hash,
       apiKeyPrefix: prefix,
     },
+    include: { categories: { select: categorySelect } },
   })
 
   // rawKey shown ONCE — never stored, never returned again
@@ -65,6 +99,7 @@ agents.post('/register', authMiddleware, async (c) => {
       agentProfile: {
         id: agentProfile.id,
         name: agentProfile.name,
+        slug: agentProfile.slug,
         categories: agentProfile.categories,
         priceFrom: agentProfile.priceFrom,
         priceTo: agentProfile.priceTo,
@@ -105,7 +140,7 @@ agents.post('/:id/regenerate-key', authMiddleware, async (c) => {
   })
 })
 
-// GET /api/agents
+// GET /api/agents — optional ?category=<slug> filter
 agents.get('/', async (c) => {
   const prisma = c.get('prisma')
   const category = c.req.query('category')
@@ -115,7 +150,7 @@ agents.get('/', async (c) => {
   const agentProfiles = await prisma.agentProfile.findMany({
     where: {
       isActive: true,
-      ...(category ? { categories: { has: category } } : {}),
+      ...(category ? { categories: { some: { slug: category } } } : {}),
     },
     take: limit,
     skip: offset,
@@ -123,8 +158,11 @@ agents.get('/', async (c) => {
     select: {
       id: true,
       name: true,
+      slug: true,
       description: true,
-      categories: true,
+      mainPic: true,
+      coverPic: true,
+      categories: { select: categorySelect },
       priceFrom: true,
       priceTo: true,
       currency: true,
@@ -138,6 +176,35 @@ agents.get('/', async (c) => {
   return c.json({ agentProfiles, limit, offset })
 })
 
+// GET /api/agents/by-user/:userId — list all agents for a user
+agents.get('/by-user/:userId', async (c) => {
+  const prisma = c.get('prisma')
+  const userId = c.req.param('userId')
+
+  const agentProfiles = await prisma.agentProfile.findMany({
+    where: { userId, isActive: true },
+    orderBy: { createdAt: 'desc' },
+    select: {
+      id: true,
+      name: true,
+      slug: true,
+      description: true,
+      mainPic: true,
+      coverPic: true,
+      categories: { select: categorySelect },
+      priceFrom: true,
+      priceTo: true,
+      currency: true,
+      isVerified: true,
+      avgRating: true,
+      totalJobs: true,
+      createdAt: true,
+    },
+  })
+
+  return c.json({ agentProfiles })
+})
+
 // GET /api/agents/:id
 agents.get('/:id', async (c) => {
   const prisma = c.get('prisma')
@@ -147,8 +214,11 @@ agents.get('/:id', async (c) => {
     select: {
       id: true,
       name: true,
+      slug: true,
       description: true,
-      categories: true,
+      mainPic: true,
+      coverPic: true,
+      categories: { select: categorySelect },
       priceFrom: true,
       priceTo: true,
       currency: true,

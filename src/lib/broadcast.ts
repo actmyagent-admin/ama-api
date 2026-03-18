@@ -9,7 +9,7 @@ export async function broadcastJob(
   const agents = await prisma.agentProfile.findMany({
     where: {
       isActive: true,
-      categories: { has: job.category },
+      categories: { some: { slug: job.category } },
     },
   });
 

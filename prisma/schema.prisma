@@ -14,6 +14,20 @@ enum Role {
   AGENT_LISTER
 }
 
+enum ContactMessageStatus {
+  NEW
+  IN_PROGRESS
+  RESOLVED
+  CLOSED
+}
+
+enum ContactPriority {
+  LOW
+  NORMAL
+  HIGH
+  URGENT
+}
+
 enum JobStatus {
   OPEN
   IN_PROGRESS
@@ -51,8 +65,8 @@ enum DeliveryStatus {
 }
 
 model User {
-  id             String        @id @default(uuid())
-  supabaseId     String        @unique
+  id             String        @id @default(uuid()) @db.Uuid
+  supabaseId     String        @unique @db.Uuid
   email          String        @unique
   userName       String        @unique
   name           String?
@@ -65,19 +79,23 @@ model User {
   updatedAt      DateTime      @updatedAt
   agentProfile   AgentProfile?
   jobs           Job[]
+  contracts      Contract[]
   messages       Message[]
 }
 
 model AgentProfile {
-  id            String     @id @default(uuid())
-  userId        String     @unique
+  id            String     @id @default(uuid()) @db.Uuid
+  userId        String     @unique @db.Uuid
   user          User       @relation(fields: [userId], references: [id])
   name          String
+  slug          String     @unique
   description   String
-  categories    String[]
+  categories    Category[]
   priceFrom     Float
   priceTo       Float
   currency      String     @default("USD")
+  mainPic       String?
+  coverPic      String?
   webhookUrl    String
   // API key: only the bcrypt hash is stored; raw key shown once at registration
   apiKeyHash    String?
@@ -93,8 +111,8 @@ model AgentProfile {
 }
 
 model Job {
-  id          String     @id @default(uuid())
-  buyerId     String
+  id          String     @id @default(uuid()) @db.Uuid
+  buyerId     String     @db.Uuid
   buyer       User       @relation(fields: [buyerId], references: [id])
   title       String
   description String
@@ -111,10 +129,10 @@ model Job {
 }
 
 model Proposal {
-  id             String         @id @default(uuid())
-  jobId          String
+  id             String         @id @default(uuid()) @db.Uuid
+  jobId          String         @db.Uuid
   job            Job            @relation(fields: [jobId], references: [id])
-  agentProfileId String
+  agentProfileId String         @db.Uuid
   agentProfile   AgentProfile   @relation(fields: [agentProfileId], references: [id])
   message        String
   price          Float
@@ -127,13 +145,14 @@ model Proposal {
 }
 
 model Contract {
-  id             String         @id @default(uuid())
-  jobId          String         @unique
+  id             String         @id @default(uuid()) @db.Uuid
+  jobId          String         @unique @db.Uuid
   job            Job            @relation(fields: [jobId], references: [id])
-  proposalId     String         @unique
+  proposalId     String         @unique @db.Uuid
   proposal       Proposal       @relation(fields: [proposalId], references: [id])
-  buyerId        String
-  agentProfileId String
+  buyerId        String         @db.Uuid
+  buyer          User           @relation(fields: [buyerId], references: [id])
+  agentProfileId String         @db.Uuid
   agentProfile   AgentProfile   @relation(fields: [agentProfileId], references: [id])
   scope          String
   deliverables   String
@@ -152,10 +171,10 @@ model Contract {
 }
 
 model Message {
-  id         String   @id @default(uuid())
-  contractId String
+  id         String   @id @default(uuid()) @db.Uuid
+  contractId String   @db.Uuid
   contract   Contract @relation(fields: [contractId], references: [id])
-  senderId   String
+  senderId   String   @db.Uuid
   sender     User     @relation(fields: [senderId], references: [id])
   senderRole Role
   content    String
@@ -163,8 +182,8 @@ model Message {
 }
 
 model Payment {
-  id                    String        @id @default(uuid())
-  contractId            String        @unique
+  id                    String        @id @default(uuid()) @db.Uuid
+  contractId            String        @unique @db.Uuid
   contract              Contract      @relation(fields: [contractId], references: [id])
   stripePaymentIntentId String        @unique
   amount                Float
@@ -174,11 +193,39 @@ model Payment {
 }
 
 model Delivery {
-  id          String         @id @default(uuid())
-  contractId  String         @unique
+  id          String         @id @default(uuid()) @db.Uuid
+  contractId  String         @unique @db.Uuid
   contract    Contract       @relation(fields: [contractId], references: [id])
   description String
   fileUrls    String[]
   status      DeliveryStatus @default(SUBMITTED)
   submittedAt DateTime       @default(now())
+}
+
+model Category {
+  id        String         @id @default(uuid()) @db.Uuid
+  name      String
+  slug      String         @unique
+  mainPic   String?
+  coverPic  String?
+  createdAt DateTime       @default(now())
+  updatedAt DateTime       @updatedAt
+  agents    AgentProfile[]
+}
+
+model ContactMessage {
+  id          Int                  @id @default(autoincrement())
+  name        String
+  email       String
+  phone       String?
+  subject     String
+  message     String
+  source      String?
+  status      ContactMessageStatus @default(NEW)
+  priority    ContactPriority      @default(NORMAL)
+  respondedAt DateTime?
+  ipAddress   String?              @db.VarChar(45)
+  userAgent   String?
+  createdAt   DateTime             @default(now())
+  updatedAt   DateTime             @updatedAt
 }

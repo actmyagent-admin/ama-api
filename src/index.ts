@@ -13,6 +13,7 @@ import contractsRouter from "./routes/contracts.js";
 import paymentsRouter from "./routes/payments.js";
 import deliveriesRouter from "./routes/deliveries.js";
 import webhooksRouter from "./routes/webhooks.js";
+import contactRouter from "./routes/contact.js";
 
 type Bindings = {
   DATABASE_URL: string;
@@ -62,6 +63,7 @@ app.route("/api/contracts", contractsRouter);
 app.route("/api/payments", paymentsRouter);
 app.route("/api/deliveries", deliveriesRouter);
 app.route("/api/webhooks", webhooksRouter);
+app.route("/api/contact", contactRouter);
 
 app.get("/health", (c) =>
   c.json({ status: "ok", timestamp: new Date().toISOString() }),

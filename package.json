@@ -12,7 +12,12 @@
     "db:push:prod": "dotenv -e .env.prod -- prisma db push",
     "db:studio": "dotenv -e .env -- prisma studio",
     "db:studio:prod": "dotenv -e .env.prod -- prisma studio",
+    "db:seed": "dotenv -e .env -- npx tsx prisma/seed.ts",
+    "db:seed:prod": "dotenv -e .env.prod -- npx tsx prisma/seed.ts",
     "cf-typegen": "wrangler types"
+  },
+  "prisma": {
+    "seed": "npx tsx prisma/seed.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.20",
