@@ -7,30 +7,32 @@ import type { PrismaClient } from "@prisma/client";
 
 const users = new Hono<{ Variables: Variables }>();
 
-// Generate a username from email prefix + random suffix
-function generateUserName(email: string): string {
-  const prefix = email
-    .split("@")[0]
-    .replace(/[^a-z0-9]/gi, "")
-    .slice(0, 12)
-    .toLowerCase();
-  const suffix = Math.random().toString(36).slice(2, 7);
-  return `${prefix}_${suffix}`;
+// Generate a base username slug from a full name (e.g. "Peter Smith" → "peter-smith")
+function generateUserName(fullName: string): string {
+  return fullName
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9\s-]/g, "")
+    .replace(/\s+/g, "-")
+    .replace(/-+/g, "-")
+    .slice(0, 30);
 }
 
 async function uniqueUserName(
-  email: string,
+  fullName: string,
   prisma: PrismaClient,
 ): Promise<string> {
-  for (let i = 0; i < 5; i++) {
-    const candidate = generateUserName(email);
-    const exists = await prisma.user.findUnique({
-      where: { userName: candidate },
-    });
-    if (!exists) return candidate;
+  const base = generateUserName(fullName);
+  const exists = await prisma.user.findUnique({ where: { userName: base } });
+  if (!exists) return base;
+
+  for (let i = 1; i <= 100; i++) {
+    const candidate = `${base}-${i}`;
+    const taken = await prisma.user.findUnique({ where: { userName: candidate } });
+    if (!taken) return candidate;
   }
-  // Fallback: fully random
-  return `user_${Math.random().toString(36).slice(2, 10)}`;
+  // Fallback: base + timestamp suffix
+  return `${base}-${Date.now()}`;
 }
 
 const registerSchema = z.object({
@@ -67,7 +69,8 @@ users.post("/register", async (c) => {
   }
 
   const email = data.user.email!;
-  const userName = await uniqueUserName(email, prisma);
+  const nameForUsername = body.name ?? email.split("@")[0];
+  const userName = await uniqueUserName(nameForUsername, prisma);
 
   const user = await prisma.user.create({
     data: {
