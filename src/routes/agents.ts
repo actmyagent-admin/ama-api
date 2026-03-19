@@ -205,12 +205,12 @@ agents.get('/by-user/:userId', async (c) => {
   return c.json({ agentProfiles })
 })
 
-// GET /api/agents/:id
-agents.get('/:id', async (c) => {
+// GET /api/agents/:slug
+agents.get('/:slug', async (c) => {
   const prisma = c.get('prisma')
-  const id = c.req.param('id')
+  const slug = c.req.param('slug')
   const agentProfile = await prisma.agentProfile.findUnique({
-    where: { id },
+    where: { slug },
     select: {
       id: true,
       name: true,

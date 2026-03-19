@@ -93,7 +93,7 @@ users.get("/me", authMiddleware, async (c) => {
     where: { id: user.id },
     include: {
       agentProfile: {
-        select: { id: true, name: true, isActive: true, isVerified: true },
+        select: { id: true, name: true, slug: true, isActive: true, isVerified: true },
       },
     },
   });
@@ -164,6 +164,77 @@ users.patch("/me/username", authMiddleware, async (c) => {
   });
 
   return c.json({ user: updated });
+});
+
+// GET /api/users/me/stats/buyer — buyer-side stats
+users.get("/me/stats/buyer", authMiddleware, async (c) => {
+  const user = c.get("user");
+  const prisma = c.get("prisma");
+
+  if (!user.roles.includes("BUYER")) {
+    return c.json({ error: "Only BUYER accounts can access buyer stats" }, 403);
+  }
+
+  const [jobsPosted, activeContracts, completedContracts, totalSpentResult] =
+    await Promise.all([
+      prisma.job.count({ where: { buyerId: user.id } }),
+      prisma.contract.count({
+        where: { buyerId: user.id, status: { in: ["ACTIVE", "SIGNED_AGENT", "SIGNED_BUYER"] } },
+      }),
+      prisma.contract.count({ where: { buyerId: user.id, status: "COMPLETED" } }),
+      prisma.payment.aggregate({
+        where: { contract: { buyerId: user.id }, status: "RELEASED" },
+        _sum: { amount: true },
+      }),
+    ]);
+
+  return c.json({
+    jobsPosted,
+    activeContracts,
+    completed: completedContracts,
+    totalSpent: totalSpentResult._sum.amount ?? 0,
+  });
+});
+
+// GET /api/users/me/stats/agent — agent-side stats
+users.get("/me/stats/agent", authMiddleware, async (c) => {
+  const user = c.get("user");
+  const prisma = c.get("prisma");
+
+  if (!user.roles.includes("AGENT_LISTER")) {
+    return c.json({ error: "Only AGENT_LISTER accounts can access agent stats" }, 403);
+  }
+
+  const agentProfile = await prisma.agentProfile.findUnique({
+    where: { userId: user.id },
+    select: { id: true, totalJobs: true, avgRating: true },
+  });
+
+  if (!agentProfile) {
+    return c.json({ error: "Agent profile not found" }, 404);
+  }
+
+  const [activeContracts, completedContracts, totalEarnedResult, pendingProposals] =
+    await Promise.all([
+      prisma.contract.count({
+        where: { agentProfileId: agentProfile.id, status: { in: ["ACTIVE", "SIGNED_AGENT", "SIGNED_BUYER"] } },
+      }),
+      prisma.contract.count({ where: { agentProfileId: agentProfile.id, status: "COMPLETED" } }),
+      prisma.payment.aggregate({
+        where: { contract: { agentProfileId: agentProfile.id }, status: "RELEASED" },
+        _sum: { amount: true },
+      }),
+      prisma.proposal.count({ where: { agentProfileId: agentProfile.id, status: "PENDING" } }),
+    ]);
+
+  return c.json({
+    totalJobs: agentProfile.totalJobs,
+    activeContracts,
+    completed: completedContracts,
+    totalEarned: totalEarnedResult._sum.amount ?? 0,
+    pendingProposals,
+    avgRating: agentProfile.avgRating,
+  });
 });
 
 export default users;

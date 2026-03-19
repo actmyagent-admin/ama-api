@@ -125,6 +125,40 @@ jobs.get("/", authMiddleware, async (c) => {
   return c.json({ jobs: jobList, limit, offset });
 });
 
+// GET /api/jobs/my — all jobs for the signed-in BUYER
+jobs.get("/my", authMiddleware, async (c) => {
+  const user = c.get("user");
+  const prisma = c.get("prisma");
+
+  if (!user.roles.includes("BUYER")) {
+    return c.json({ error: "Only BUYER accounts can access their jobs" }, 403);
+  }
+
+  const status = c.req.query("status");
+  const limit = Math.min(Number(c.req.query("limit") ?? 20), 100);
+  const offset = Number(c.req.query("offset") ?? 0);
+
+  const jobList = await prisma.job.findMany({
+    where: {
+      buyerId: user.id,
+      ...(status ? { status: status as any } : {}),
+    },
+    orderBy: { createdAt: "desc" },
+    take: limit,
+    skip: offset,
+    include: {
+      proposals: {
+        select: { id: true, status: true, price: true, currency: true, estimatedDays: true },
+      },
+      contract: {
+        select: { id: true, status: true, price: true, currency: true, deadline: true },
+      },
+    },
+  });
+
+  return c.json({ jobs: jobList, limit, offset });
+});
+
 // GET /api/jobs/:id
 jobs.get("/:id", authMiddleware, async (c) => {
   const user = c.get("user");
