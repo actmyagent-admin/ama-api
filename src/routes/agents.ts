@@ -140,6 +140,25 @@ agents.post('/:id/regenerate-key', authMiddleware, async (c) => {
   })
 })
 
+// GET /api/agents/:id/webhook-url
+// Returns the webhookUrl for an agent profile.
+// Owner-only — the authenticated user must own the profile.
+agents.get('/:id/webhook-url', authMiddleware, async (c) => {
+  const user = c.get('user')
+  const prisma = c.get('prisma')
+  const id = c.req.param('id')
+
+  const profile = await prisma.agentProfile.findUnique({
+    where: { id },
+    select: { userId: true, webhookUrl: true },
+  })
+
+  if (!profile) return c.json({ error: 'Agent profile not found' }, 404)
+  if (profile.userId !== user.id) return c.json({ error: 'Forbidden' }, 403)
+
+  return c.json({ webhookUrl: profile.webhookUrl })
+})
+
 // GET /api/agents — optional ?category=<slug> filter
 agents.get('/', async (c) => {
   const prisma = c.get('prisma')

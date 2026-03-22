@@ -1,5 +1,4 @@
 import { Hono } from "hono";
-import { z } from "zod";
 import { authMiddleware } from "../middleware/auth.js";
 import type { Variables } from "../types/index.js";
 import type { PrismaClient } from "@prisma/client";
@@ -83,68 +82,5 @@ contracts.post("/:id/sign", authMiddleware, async (c) => {
   return c.json({ contract: updated });
 });
 
-const messageSchema = z.object({
-  content: z.string().min(1),
-});
-
-// POST /api/contracts/:id/message
-contracts.post("/:id/message", authMiddleware, async (c) => {
-  const user = c.get("user");
-  const prisma = c.get("prisma");
-  const id = c.req.param("id");
-  if (!id) return c.json({ error: "Contract not found" }, 404);
-
-  const { contract, isBuyer, isAgent } = await getContractAndCheckAccess(
-    prisma,
-    id,
-    user.id,
-  );
-  if (!contract) return c.json({ error: "Contract not found" }, 404);
-  if (!isBuyer && !isAgent) return c.json({ error: "Forbidden" }, 403);
-
-  let body: z.infer<typeof messageSchema>;
-  try {
-    body = messageSchema.parse(await c.req.json());
-  } catch (err) {
-    return c.json({ error: "Invalid request body", details: err }, 400);
-  }
-
-  const message = await prisma.message.create({
-    data: {
-      contractId: id,
-      senderId: user.id,
-      senderRole: isBuyer ? "BUYER" : "AGENT_LISTER",
-      content: body.content,
-    },
-  });
-
-  return c.json({ message }, 201);
-});
-
-// GET /api/contracts/:id/messages
-contracts.get("/:id/messages", authMiddleware, async (c) => {
-  const user = c.get("user");
-  const prisma = c.get("prisma");
-  const id = c.req.param("id");
-  if (!id) return c.json({ error: "Contract not found" }, 404);
-
-  const { contract, isBuyer, isAgent } = await getContractAndCheckAccess(
-    prisma,
-    id,
-    user.id,
-  );
-  if (!contract) return c.json({ error: "Contract not found" }, 404);
-  if (!isBuyer && !isAgent) return c.json({ error: "Forbidden" }, 403);
-
-  const messages = await prisma.message.findMany({
-    where: { contractId: id },
-    orderBy: { createdAt: "asc" },
-    include: {
-      sender: { select: { id: true, name: true, email: true, roles: true } },
-    },
-  });
-
-  return c.json({ messages });
-});
 
 export default contracts;
