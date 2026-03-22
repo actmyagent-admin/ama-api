@@ -3,6 +3,7 @@ import { z } from "zod";
 import { authMiddleware } from "../middleware/auth.js";
 import { apiKeyMiddleware } from "../middleware/apiKey.js";
 import { generateContract } from "../lib/anthropic.js";
+import type { AiAuditMeta } from "../lib/anthropic.js";
 import type { Variables } from "../types/index.js";
 
 const proposals = new Hono<{ Variables: Variables }>();
@@ -133,10 +134,15 @@ proposals.post("/:id/accept", authMiddleware, async (c) => {
     deliverables: "Completed deliverable as described in the job posting",
     fullContractText: "",
   };
+  let aiAuditMeta: AiAuditMeta | null = null;
+  let aiApiError: string | null = null;
   try {
-    contractContent = await generateContract(proposal.job, proposal);
+    const aiResult = await generateContract(proposal.job, proposal);
+    contractContent = aiResult.result;
+    aiAuditMeta = aiResult.audit;
   } catch (err) {
     console.error("[proposals] Contract generation failed:", err);
+    aiApiError = err instanceof Error ? err.message : String(err);
   }
 
   const deadline = new Date(Date.now() + proposal.estimatedDays * 86400000);
@@ -167,6 +173,41 @@ proposals.post("/:id/accept", authMiddleware, async (c) => {
       data: { status: "IN_PROGRESS" },
     }),
   ]);
+
+  // Persist AI audit log — fire-and-forget, never block the response
+  const auditPayload = aiAuditMeta ?? {
+    model: "claude-sonnet-4-20250514",
+    inputPrompt: `Job: ${proposal.job.title}`,
+    rawOutput: "",
+    parsedOutputJson: null,
+    inputTokens: null,
+    outputTokens: null,
+    durationMs: null,
+    status: "API_ERROR" as const,
+    errorMessage: aiApiError,
+  };
+  prisma.aiAuditLog
+    .create({
+      data: {
+        type: "CONTRACT_GENERATION",
+        status: auditPayload.status,
+        model: auditPayload.model,
+        inputPrompt: auditPayload.inputPrompt,
+        rawOutput: auditPayload.rawOutput,
+        parsedOutputJson: auditPayload.parsedOutputJson ?? undefined,
+        inputTokens: auditPayload.inputTokens,
+        outputTokens: auditPayload.outputTokens,
+        durationMs: auditPayload.durationMs,
+        errorMessage: auditPayload.errorMessage,
+        jobId: proposal.jobId,
+        proposalId: proposal.id,
+        contractId: contract.id,
+        triggeredByUserId: user.id,
+      },
+    })
+    .catch((err: unknown) =>
+      console.error("[proposals] Failed to save AI audit log:", err),
+    );
 
   return c.json(
     { contract, fullContractText: contractContent.fullContractText },

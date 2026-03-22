@@ -20,33 +20,74 @@ export interface ContractContent {
   fullContractText: string;
 }
 
-export async function categorizeJob(description: string): Promise<JobAnalysis> {
-  const message = await getClient().messages.create({
-    model: "claude-sonnet-4-20250514",
-    max_tokens: 1000,
-    messages: [
-      {
-        role: "user",
-        content: `Given this task description: "${description}", extract:
-- suggestedCategory (one of: development, design, writing, video, data, marketing, legal, travel, other)
-- estimatedBudget (number in USD or null)
-- estimatedTimeline (string like "3 days" or null)
-- keyDeliverables (array of strings)
-Respond in JSON only, no markdown.`,
-      },
-    ],
-  });
+export interface AiAuditMeta {
+  model: string;
+  inputPrompt: string;
+  rawOutput: string;
+  parsedOutputJson: unknown;
+  inputTokens: number | null;
+  outputTokens: number | null;
+  durationMs: number;
+  status: "SUCCESS" | "PARSE_ERROR" | "API_ERROR";
+  errorMessage: string | null;
+}
 
-  const text =
-    message.content[0].type === "text" ? message.content[0].text : "{}";
+const MODEL = "claude-sonnet-4-20250514";
+
+export async function categorizeJob(
+  description: string,
+): Promise<{ result: JobAnalysis; audit: AiAuditMeta }> {
+  const inputPrompt = `Given this task description: "${description}", extract:\n- suggestedCategory (one of: development, design, writing, video, data, marketing, legal, travel, other)\n- estimatedBudget (number in USD or null)\n- estimatedTimeline (string like "3 days" or null)\n- keyDeliverables (array of strings)\nRespond in JSON only, no markdown.`;
+
+  const startedAt = Date.now();
+  const message = await getClient().messages.create({
+    model: MODEL,
+    max_tokens: 1000,
+    messages: [{ role: "user", content: inputPrompt }],
+  });
+  const durationMs = Date.now() - startedAt;
+
+  const rawOutput =
+    message.content[0].type === "text" ? message.content[0].text : "";
+  const inputTokens = message.usage?.input_tokens ?? null;
+  const outputTokens = message.usage?.output_tokens ?? null;
+
   try {
-    return JSON.parse(text) as JobAnalysis;
-  } catch {
+    const parsed = JSON.parse(rawOutput) as JobAnalysis;
     return {
+      result: parsed,
+      audit: {
+        model: MODEL,
+        inputPrompt,
+        rawOutput,
+        parsedOutputJson: parsed,
+        inputTokens,
+        outputTokens,
+        durationMs,
+        status: "SUCCESS",
+        errorMessage: null,
+      },
+    };
+  } catch (err) {
+    const fallback: JobAnalysis = {
       suggestedCategory: "other",
       estimatedBudget: null,
       estimatedTimeline: null,
       keyDeliverables: [],
+    };
+    return {
+      result: fallback,
+      audit: {
+        model: MODEL,
+        inputPrompt,
+        rawOutput,
+        parsedOutputJson: null,
+        inputTokens,
+        outputTokens,
+        durationMs,
+        status: "PARSE_ERROR",
+        errorMessage: err instanceof Error ? err.message : String(err),
+      },
     };
   }
 }
@@ -54,42 +95,63 @@ Respond in JSON only, no markdown.`,
 export async function generateContract(
   job: Job,
   proposal: Proposal,
-): Promise<ContractContent> {
+): Promise<{ result: ContractContent; audit: AiAuditMeta }> {
   const deadline = proposal.estimatedDays
     ? new Date(Date.now() + proposal.estimatedDays * 86400000)
         .toISOString()
         .split("T")[0]
     : "TBD";
 
+  const inputPrompt = `Generate a plain English service contract for:\nJob: ${job.title} - ${job.description}\nAgreed price: ${proposal.price} ${proposal.currency}\nDeadline: ${deadline} (${proposal.estimatedDays} days)\nAgent proposal: ${proposal.message}\n\nInclude sections: Scope of Work, Deliverables, Payment Terms,\nRevision Policy (2 revisions), IP Ownership (buyer owns on payment),\nDispute Resolution. Keep it clear and under 400 words.\nRespond in JSON only (no markdown): { "scope": string, "deliverables": string, "fullContractText": string }`;
+
+  const startedAt = Date.now();
   const message = await getClient().messages.create({
-    model: "claude-sonnet-4-20250514",
+    model: MODEL,
     max_tokens: 1000,
-    messages: [
-      {
-        role: "user",
-        content: `Generate a plain English service contract for:
-Job: ${job.title} - ${job.description}
-Agreed price: ${proposal.price} ${proposal.currency}
-Deadline: ${deadline} (${proposal.estimatedDays} days)
-Agent proposal: ${proposal.message}
-
-Include sections: Scope of Work, Deliverables, Payment Terms,
-Revision Policy (2 revisions), IP Ownership (buyer owns on payment),
-Dispute Resolution. Keep it clear and under 400 words.
-Respond in JSON only (no markdown): { "scope": string, "deliverables": string, "fullContractText": string }`,
-      },
-    ],
+    messages: [{ role: "user", content: inputPrompt }],
   });
+  const durationMs = Date.now() - startedAt;
 
-  const text =
-    message.content[0].type === "text" ? message.content[0].text : "{}";
+  const rawOutput =
+    message.content[0].type === "text" ? message.content[0].text : "";
+  const inputTokens = message.usage?.input_tokens ?? null;
+  const outputTokens = message.usage?.output_tokens ?? null;
+
   try {
-    return JSON.parse(text) as ContractContent;
-  } catch {
+    const parsed = JSON.parse(rawOutput) as ContractContent;
     return {
+      result: parsed,
+      audit: {
+        model: MODEL,
+        inputPrompt,
+        rawOutput,
+        parsedOutputJson: parsed,
+        inputTokens,
+        outputTokens,
+        durationMs,
+        status: "SUCCESS",
+        errorMessage: null,
+      },
+    };
+  } catch (err) {
+    const fallback: ContractContent = {
       scope: `Provide services for: ${job.title}`,
       deliverables: `Completed deliverable as described in the job posting`,
       fullContractText: `Service Agreement\n\nScope: ${job.title}\nPrice: ${proposal.price} ${proposal.currency}\nDeadline: ${deadline}\n\nBoth parties agree to the terms outlined in the proposal.`,
+    };
+    return {
+      result: fallback,
+      audit: {
+        model: MODEL,
+        inputPrompt,
+        rawOutput,
+        parsedOutputJson: null,
+        inputTokens,
+        outputTokens,
+        durationMs,
+        status: "PARSE_ERROR",
+        errorMessage: err instanceof Error ? err.message : String(err),
+      },
     };
   }
 }

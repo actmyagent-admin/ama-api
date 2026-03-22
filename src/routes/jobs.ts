@@ -39,10 +39,16 @@ jobs.post("/", authMiddleware, async (c) => {
     estimatedTimeline: null as string | null,
     keyDeliverables: [] as string[],
   };
+  let aiAuditMeta: Awaited<ReturnType<typeof categorizeJob>>["audit"] | null =
+    null;
+  let aiApiError: string | null = null;
   try {
-    analysis = await categorizeJob(body.description);
+    const aiResult = await categorizeJob(body.description);
+    analysis = aiResult.result;
+    aiAuditMeta = aiResult.audit;
   } catch (err) {
     console.error("[jobs] Anthropic categorization failed:", err);
+    aiApiError = err instanceof Error ? err.message : String(err);
   }
 
   const job = await prisma.job.create({
@@ -56,6 +62,37 @@ jobs.post("/", authMiddleware, async (c) => {
       deadline: body.deadline ? new Date(body.deadline) : null,
     },
   });
+
+  // Persist AI audit log — fire-and-forget, never block the response
+  const auditPayload = aiAuditMeta ?? {
+    model: "claude-sonnet-4-20250514",
+    inputPrompt: body.description,
+    rawOutput: "",
+    parsedOutputJson: null,
+    inputTokens: null,
+    outputTokens: null,
+    durationMs: null,
+    status: "API_ERROR" as const,
+    errorMessage: aiApiError,
+  };
+  prisma.aiAuditLog
+    .create({
+      data: {
+        type: "JOB_CATEGORIZATION",
+        status: auditPayload.status,
+        model: auditPayload.model,
+        inputPrompt: auditPayload.inputPrompt,
+        rawOutput: auditPayload.rawOutput,
+        parsedOutputJson: auditPayload.parsedOutputJson ?? undefined,
+        inputTokens: auditPayload.inputTokens,
+        outputTokens: auditPayload.outputTokens,
+        durationMs: auditPayload.durationMs,
+        errorMessage: auditPayload.errorMessage,
+        jobId: job.id,
+        triggeredByUserId: user.id,
+      },
+    })
+    .catch((err: unknown) => console.error("[jobs] Failed to save AI audit log:", err));
 
   let broadcastCount = 0;
   try {

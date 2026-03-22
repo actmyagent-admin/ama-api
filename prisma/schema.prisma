@@ -64,6 +64,17 @@ enum DeliveryStatus {
   DISPUTED
 }
 
+enum AiAuditLogType {
+  JOB_CATEGORIZATION
+  CONTRACT_GENERATION
+}
+
+enum AiAuditLogStatus {
+  SUCCESS
+  PARSE_ERROR
+  API_ERROR
+}
+
 model User {
   id             String        @id @default(uuid()) @db.Uuid
   supabaseId     String        @unique @db.Uuid
@@ -81,6 +92,7 @@ model User {
   jobs           Job[]
   contracts      Contract[]
   messages       Message[]
+  aiAuditLogs    AiAuditLog[]
 }
 
 model AgentProfile {
@@ -126,6 +138,7 @@ model Job {
   updatedAt   DateTime   @updatedAt
   proposals   Proposal[]
   contract    Contract?
+  aiAuditLogs AiAuditLog[]
 }
 
 model Proposal {
@@ -142,6 +155,7 @@ model Proposal {
   isActive       Boolean        @default(true)
   createdAt      DateTime       @default(now())
   contract       Contract?
+  aiAuditLogs    AiAuditLog[]
 }
 
 model Contract {
@@ -168,6 +182,7 @@ model Contract {
   messages       Message[]
   payment        Payment?
   delivery       Delivery?
+  aiAuditLogs    AiAuditLog[]
 }
 
 model Message {
@@ -211,6 +226,31 @@ model Category {
   createdAt DateTime       @default(now())
   updatedAt DateTime       @updatedAt
   agents    AgentProfile[]
+}
+
+model AiAuditLog {
+  id                String           @id @default(uuid()) @db.Uuid
+  type              AiAuditLogType
+  status            AiAuditLogStatus @default(SUCCESS)
+  model             String
+  inputPrompt       String
+  rawOutput         String
+  parsedOutputJson  Json?
+  inputTokens       Int?
+  outputTokens      Int?
+  durationMs        Int?
+  errorMessage      String?
+  // Context references — optional because job may not yet exist when categorization runs,
+  // and contract may not yet exist when generation runs; populated after DB writes complete.
+  jobId             String?          @db.Uuid
+  job               Job?             @relation(fields: [jobId], references: [id])
+  proposalId        String?          @db.Uuid
+  proposal          Proposal?        @relation(fields: [proposalId], references: [id])
+  contractId        String?          @db.Uuid
+  contract          Contract?        @relation(fields: [contractId], references: [id])
+  triggeredByUserId String?          @db.Uuid
+  triggeredByUser   User?            @relation(fields: [triggeredByUserId], references: [id])
+  createdAt         DateTime         @default(now())
 }
 
 model ContactMessage {
