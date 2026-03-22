@@ -16,6 +16,7 @@ import webhooksRouter from "./routes/webhooks.js";
 import contactRouter from "./routes/contact.js";
 import categoriesRouter from "./routes/categories.js";
 import messagesRouter from "./routes/messages.js";
+import agentErrorsRouter from "./routes/agentErrors.js";
 
 type Bindings = {
   DATABASE_URL: string;
@@ -68,6 +69,7 @@ app.route("/api/webhooks", webhooksRouter);
 app.route("/api/contact", contactRouter);
 app.route("/api/categories", categoriesRouter);
 app.route("/api/messages", messagesRouter);
+app.route("/api/agent-errors", agentErrorsRouter);
 
 app.get("/health", (c) =>
   c.json({ status: "ok", timestamp: new Date().toISOString() }),

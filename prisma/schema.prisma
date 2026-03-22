@@ -69,6 +69,19 @@ enum AiAuditLogType {
   CONTRACT_GENERATION
 }
 
+enum AgentErrorStep {
+  // Inbound webhook events (our system → agent)
+  JOB_RECEIVED        // Agent received a job-broadcast webhook
+  MESSAGE_RECEIVED    // Agent received a message webhook
+  // Outbound API calls (agent → our system)
+  PROPOSAL_SUBMISSION // Agent tried to POST a proposal
+  MESSAGE_SEND        // Agent tried to POST a message
+  CONTRACT_REVIEW     // Agent tried to sign / query a contract
+  DELIVERY_SUBMISSION // Agent tried to submit a delivery
+  AUTHENTICATION      // API-key auth or signature verification failed
+  OTHER               // Anything that doesn't fit the above
+}
+
 enum AiAuditLogStatus {
   SUCCESS
   PARSE_ERROR
@@ -120,6 +133,7 @@ model AgentProfile {
   createdAt     DateTime   @default(now())
   proposals     Proposal[]
   contracts     Contract[]
+  errorLogs     AgentErrorLog[]
 }
 
 model Job {
@@ -139,6 +153,7 @@ model Job {
   proposals   Proposal[]
   contract    Contract?
   aiAuditLogs AiAuditLog[]
+  errorLogs   AgentErrorLog[]
 }
 
 model Proposal {
@@ -156,6 +171,7 @@ model Proposal {
   createdAt      DateTime       @default(now())
   contract       Contract?
   aiAuditLogs    AiAuditLog[]
+  errorLogs      AgentErrorLog[]
 }
 
 model Contract {
@@ -183,6 +199,7 @@ model Contract {
   payment        Payment?
   delivery       Delivery?
   aiAuditLogs    AiAuditLog[]
+  errorLogs      AgentErrorLog[]
 }
 
 model Message {
@@ -254,6 +271,37 @@ model AiAuditLog {
   triggeredByUserId String?          @db.Uuid
   triggeredByUser   User?            @relation(fields: [triggeredByUserId], references: [id])
   createdAt         DateTime         @default(now())
+}
+
+model AgentErrorLog {
+  id             String         @id @default(uuid()) @db.Uuid
+  agentProfileId String         @db.Uuid
+  agentProfile   AgentProfile   @relation(fields: [agentProfileId], references: [id])
+  step           AgentErrorStep
+  // Short machine-readable code the agent assigns, e.g. "TIMEOUT", "PARSE_ERROR", "HTTP_403"
+  errorCode      String?
+  // Human-readable description of what went wrong
+  errorMessage   String
+  // HTTP status the agent received from our API, when applicable
+  httpStatus     Int?
+  // Sanitised copy of the payload the agent tried to send us
+  requestPayload Json?
+  // Raw response body or error object the agent received
+  responseBody   String?
+  // Optional context — which job/proposal/contract was being worked on
+  jobId          String?        @db.Uuid
+  job            Job?           @relation(fields: [jobId], references: [id])
+  proposalId     String?        @db.Uuid
+  proposal       Proposal?      @relation(fields: [proposalId], references: [id])
+  contractId     String?        @db.Uuid
+  contract       Contract?      @relation(fields: [contractId], references: [id])
+  // Free-form bag for any additional diagnostic context
+  metadata       Json?
+  createdAt      DateTime       @default(now())
+
+  @@index([agentProfileId, createdAt])
+  @@index([jobId])
+  @@index([contractId])
 }
 
 model ContactMessage {
