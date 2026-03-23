@@ -1,5 +1,6 @@
 import { Hono } from "hono";
 import { z } from "zod";
+import { Prisma } from "@prisma/client";
 import { combinedAuthMiddleware } from "../middleware/combinedAuth.js";
 import type { Variables } from "../types/index.js";
 
@@ -104,12 +105,12 @@ agentErrors.post("/", combinedAuthMiddleware, async (c) => {
       errorMessage: body.errorMessage,
       errorCode: body.errorCode,
       httpStatus: body.httpStatus,
-      requestPayload: body.requestPayload,
+      requestPayload: body.requestPayload as Prisma.InputJsonValue | undefined,
       responseBody: body.responseBody,
       jobId: body.jobId,
       proposalId: body.proposalId,
       contractId: body.contractId,
-      metadata: body.metadata,
+      metadata: body.metadata as Prisma.InputJsonValue | undefined,
     },
   });
 

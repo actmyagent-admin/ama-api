@@ -8,6 +8,10 @@ binding = "HYPERDRIVE"
 id = "07c83f39eae84887ab1f316ffedfa65a"
 localConnectionString = "postgresql://postgres.htjnhhqokabiqspnnpdw:Aw9SnuFUw889DDVnn32DHSKDHkIPLW9z6N@aws-1-us-east-1.pooler.supabase.com:6543/postgres"
 
+[triggers]
+# Auto-approves overdue deliveries (5-day buyer review window)
+crons = ["0 * * * *"]
+
 [vars]
 # Non-sensitive vars can go here; secrets must be set via:
 #   wrangler secret put STRIPE_SECRET_KEY
@@ -17,6 +21,11 @@ localConnectionString = "postgresql://postgres.htjnhhqokabiqspnnpdw:Aw9SnuFUw889
 #   wrangler secret put SUPABASE_URL
 #   wrangler secret put SUPABASE_SERVICE_ROLE_KEY
 #   wrangler secret put BROADCAST_HMAC_SECRET
+#   wrangler secret put AWS_REGION
+#   wrangler secret put AWS_ACCESS_KEY_ID
+#   wrangler secret put AWS_SECRET_ACCESS_KEY
+#   wrangler secret put AWS_S3_BUCKET
+#   wrangler secret put ADMIN_SECRET
 FRONTEND_URL = "https://actmyagent.com"
 
 [observability]

@@ -28,17 +28,18 @@ webhooks.post('/stripe', async (c) => {
   try {
     switch (event.type) {
       case 'payment_intent.succeeded': {
-        const pi = event.data.object as { id: string }
+        // Card authorized — funds reserved but NOT yet captured (true escrow)
+        const pi = event.data.object as { id: string; metadata: { contractId?: string } }
         await prisma.payment.update({
           where: { stripePaymentIntentId: pi.id },
           data: { status: 'ESCROWED' },
         })
-        console.log(`[webhooks] Payment ${pi.id} escrowed`)
+        console.log(`[webhooks] Payment ${pi.id} escrowed. Agent can start work.`)
         break
       }
 
       case 'payment_intent.payment_failed': {
-        const pi = event.data.object as { id: string; metadata: { contractId?: string } }
+        const pi = event.data.object as { id: string }
         await prisma.payment.update({
           where: { stripePaymentIntentId: pi.id },
           data: { status: 'REFUNDED' },
@@ -47,13 +48,34 @@ webhooks.post('/stripe', async (c) => {
         break
       }
 
+      case 'payment_intent.canceled': {
+        // Stripe authorizations expire after 7 days — buyer must re-authorize
+        const pi = event.data.object as { id: string; metadata: { contractId?: string } }
+        const payment = await prisma.payment.findUnique({
+          where: { stripePaymentIntentId: pi.id },
+        })
+        if (payment) {
+          await prisma.payment.update({
+            where: { stripePaymentIntentId: pi.id },
+            data: { status: 'PENDING' },
+          })
+          console.log(
+            `[webhooks] PaymentIntent ${pi.id} canceled (authorization expired). ` +
+              `Contract ${payment.contractId} — buyer must re-authorize.`,
+          )
+        }
+        break
+      }
+
+      case 'transfer.created': {
+        const transfer = event.data.object as { id: string; metadata?: { contractId?: string } }
+        console.log(`[webhooks] Transfer ${transfer.id} created — payout sent to agent.`)
+        break
+      }
+
       case 'account.updated': {
         const account = event.data.object as { id: string }
-        await prisma.user.updateMany({
-          where: { stripeAccountId: account.id },
-          data: { stripeAccountId: account.id },
-        })
-        console.log(`[webhooks] Stripe account ${account.id} updated`)
+        console.log(`[webhooks] Stripe Connect account ${account.id} updated.`)
         break
       }
 

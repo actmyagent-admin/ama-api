@@ -7,3 +7,4 @@ dist/
 .dev.vars
 *.log
 .wrangler
+skill.md

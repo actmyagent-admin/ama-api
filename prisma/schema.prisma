@@ -193,6 +193,7 @@ model Contract {
   buyerSignedAt  DateTime?
   agentSignedAt  DateTime?
   isActive       Boolean        @default(true)
+  autoReleaseAt  DateTime?      // set when delivery submitted, cleared on buyer response
   createdAt      DateTime       @default(now())
   updatedAt      DateTime       @updatedAt
   messages       Message[]
@@ -221,20 +222,39 @@ model Payment {
   contractId            String        @unique @db.Uuid
   contract              Contract      @relation(fields: [contractId], references: [id])
   stripePaymentIntentId String        @unique
-  amount                Float
-  currency              String        @default("USD")
+  stripeTransferId      String?
+  stripeRefundId        String?
+  // Stored in cents (integers) — never use floats for money
+  amountTotal           Int           @default(0)
+  amountPlatformFee     Int           @default(0)
+  amountAgentReceives   Int           @default(0)
+  currency              String        @default("usd")
+  // Snapshot of agent's Stripe account at payment time
+  agentStripeAccountId  String        @default("")
   status                PaymentStatus @default(PENDING)
+  capturedAt            DateTime?
+  releasedAt            DateTime?
+  refundedAt            DateTime?
   createdAt             DateTime      @default(now())
+  updatedAt             DateTime      @updatedAt
 }
 
 model Delivery {
-  id          String         @id @default(uuid()) @db.Uuid
-  contractId  String         @unique @db.Uuid
-  contract    Contract       @relation(fields: [contractId], references: [id])
-  description String
-  fileUrls    String[]
-  status      DeliveryStatus @default(SUBMITTED)
-  submittedAt DateTime       @default(now())
+  id               String         @id @default(uuid()) @db.Uuid
+  contractId       String         @unique @db.Uuid
+  contract         Contract       @relation(fields: [contractId], references: [id])
+  description      String
+  // S3 keys (not full URLs — signed URLs generated on demand)
+  fileKeys         String[]
+  fileNames        String[]       // original filenames for display
+  fileSizes        Int[]          // bytes
+  status           DeliveryStatus @default(SUBMITTED)
+  submittedAt      DateTime       @default(now())
+  reviewDeadline   DateTime?      // submittedAt + 5 days
+  approvedAt       DateTime?
+  disputedAt       DateTime?
+  disputeReason    String?
+  autoApproveJobId String?        // reserved for future job queue integration
 }
 
 model Category {

@@ -1,125 +1,100 @@
-import { Hono } from "hono";
-import { z } from "zod";
-import { stripe } from "../lib/stripe.js";
-import { authMiddleware } from "../middleware/auth.js";
-import type { Variables } from "../types/index.js";
-import type { PrismaClient } from "@prisma/client";
+import { Hono } from 'hono'
+import { z } from 'zod'
+import { stripe } from '../lib/stripe.js'
+import { authMiddleware } from '../middleware/auth.js'
+import type { Variables } from '../types/index.js'
 
-const payments = new Hono<{ Variables: Variables }>();
+const payments = new Hono<{ Variables: Variables }>()
 
 const createPaymentSchema = z.object({
   contractId: z.string().uuid(),
-});
+})
 
 // POST /api/payments/create
-payments.post("/create", authMiddleware, async (c) => {
-  const user = c.get("user");
-  const prisma = c.get("prisma");
+// Buyer calls this after both parties have signed the contract.
+// Creates a Stripe PaymentIntent with manual capture (true escrow).
+payments.post('/create', authMiddleware, async (c) => {
+  const user = c.get('user')
+  const prisma = c.get('prisma')
 
-  if (!user.roles.includes("BUYER")) {
-    return c.json({ error: "Only buyers can initiate payments" }, 403);
+  if (!user.roles.includes('BUYER')) {
+    return c.json({ error: 'Only buyers can initiate payments' }, 403)
   }
 
-  let body: z.infer<typeof createPaymentSchema>;
+  let body: z.infer<typeof createPaymentSchema>
   try {
-    body = createPaymentSchema.parse(await c.req.json());
+    body = createPaymentSchema.parse(await c.req.json())
   } catch (err) {
-    return c.json({ error: "Invalid request body", details: err }, 400);
+    return c.json({ error: 'Invalid request body', details: err }, 400)
   }
 
   const contract = await prisma.contract.findUnique({
     where: { id: body.contractId },
-    include: { payment: true, agentProfile: { include: { user: true } } },
-  });
+    include: {
+      payment: true,
+      agentProfile: { include: { user: true } },
+      job: true,
+    },
+  })
 
-  if (!contract) return c.json({ error: "Contract not found" }, 404);
-  if (contract.buyerId !== user.id) return c.json({ error: "Forbidden" }, 403);
-  if (contract.status !== "ACTIVE")
-    return c.json(
-      { error: "Contract must be ACTIVE to initiate payment" },
-      409,
-    );
-  if (contract.payment)
-    return c.json({ error: "Payment already exists for this contract" }, 409);
-
-  const agentStripeAccountId = contract.agentProfile.user.stripeAccountId;
-  if (!agentStripeAccountId) {
-    return c.json({ error: "Agent has not connected a Stripe account" }, 409);
+  if (!contract) return c.json({ error: 'Contract not found' }, 404)
+  if (contract.buyerId !== user.id) return c.json({ error: 'Forbidden' }, 403)
+  if (contract.status !== 'ACTIVE') {
+    return c.json({ error: 'Contract must be ACTIVE to initiate payment' }, 409)
+  }
+  if (contract.payment) {
+    return c.json({ error: 'Payment already exists for this contract' }, 409)
   }
 
-  const amountCents = Math.round(contract.price * 100);
-  const platformFeeCents = Math.round(contract.price * 0.15 * 100);
+  const agentStripeAccountId = contract.agentProfile.user.stripeAccountId
+  if (!agentStripeAccountId) {
+    return c.json({ error: 'Agent has not connected a Stripe account' }, 409)
+  }
+
+  // Always work in integer cents — never use floats for money
+  const amountTotal = Math.round(contract.price * 100)
+  const amountPlatformFee = Math.round(amountTotal * 0.15)
+  const amountAgentReceives = amountTotal - amountPlatformFee
+  const currency = contract.currency.toLowerCase()
 
   const paymentIntent = await stripe.paymentIntents.create({
-    amount: amountCents,
-    currency: contract.currency.toLowerCase(),
-    application_fee_amount: platformFeeCents,
-    capture_method: "manual",
+    amount: amountTotal,
+    currency,
+    capture_method: 'manual', // funds reserved, not captured — true escrow
+    application_fee_amount: amountPlatformFee,
     transfer_data: { destination: agentStripeAccountId },
-    metadata: { contractId: contract.id },
-  });
+    metadata: {
+      contractId: contract.id,
+      buyerId: user.id,
+      agentProfileId: contract.agentProfileId,
+      platform: 'actmyagent',
+    },
+    description: `ActMyAgent – ${contract.job?.title ?? contract.id}`,
+  })
 
   await prisma.payment.create({
     data: {
       contractId: contract.id,
       stripePaymentIntentId: paymentIntent.id,
-      amount: contract.price,
-      currency: contract.currency,
-      status: "PENDING",
+      amountTotal,
+      amountPlatformFee,
+      amountAgentReceives,
+      currency,
+      agentStripeAccountId,
+      status: 'PENDING',
     },
-  });
+  })
 
-  return c.json({ clientSecret: paymentIntent.client_secret }, 201);
-});
+  return c.json(
+    {
+      clientSecret: paymentIntent.client_secret,
+      amountTotal,
+      amountPlatformFee,
+      amountAgentReceives,
+      currency,
+    },
+    201,
+  )
+})
 
-// Called internally after delivery approval
-export async function capturePayment(contractId: string, prisma: PrismaClient) {
-  const payment = await prisma.payment.findUnique({ where: { contractId } });
-  if (!payment) throw new Error("Payment not found");
-  if (payment.status === "RELEASED") return payment;
-
-  await stripe.paymentIntents.capture(payment.stripePaymentIntentId);
-
-  const updated = await prisma.$transaction([
-    prisma.payment.update({
-      where: { id: payment.id },
-      data: { status: "RELEASED" },
-    }),
-    prisma.contract.update({
-      where: { id: contractId },
-      data: { status: "COMPLETED" },
-    }),
-  ]);
-
-  return updated[0];
-}
-
-payments.post("/capture", authMiddleware, async (c) => {
-  const user = c.get("user");
-  const prisma = c.get("prisma");
-
-  let body: z.infer<typeof createPaymentSchema>;
-  try {
-    body = createPaymentSchema.parse(await c.req.json());
-  } catch (err) {
-    return c.json({ error: "Invalid request body", details: err }, 400);
-  }
-
-  const contract = await prisma.contract.findUnique({
-    where: { id: body.contractId },
-  });
-  if (!contract) return c.json({ error: "Contract not found" }, 404);
-  if (contract.buyerId !== user.id) return c.json({ error: "Forbidden" }, 403);
-
-  try {
-    const payment = await capturePayment(body.contractId, prisma);
-    return c.json({ payment });
-  } catch (err) {
-    return c.json(
-      { error: "Payment capture failed", details: String(err) },
-      500,
-    );
-  }
-});
-
-export default payments;
+export default payments

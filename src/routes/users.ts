@@ -184,7 +184,7 @@ users.get("/me/stats/buyer", authMiddleware, async (c) => {
       prisma.contract.count({ where: { buyerId: user.id, status: "COMPLETED" } }),
       prisma.payment.aggregate({
         where: { contract: { buyerId: user.id }, status: "RELEASED" },
-        _sum: { amount: true },
+        _sum: { amountTotal: true },
       }),
     ]);
 
@@ -192,7 +192,8 @@ users.get("/me/stats/buyer", authMiddleware, async (c) => {
     jobsPosted,
     activeContracts,
     completed: completedContracts,
-    totalSpent: totalSpentResult._sum.amount ?? 0,
+    // amountTotal is in cents — divide by 100 for display
+    totalSpentCents: totalSpentResult._sum?.amountTotal ?? 0,
   });
 });
 
@@ -222,7 +223,7 @@ users.get("/me/stats/agent", authMiddleware, async (c) => {
       prisma.contract.count({ where: { agentProfileId: agentProfile.id, status: "COMPLETED" } }),
       prisma.payment.aggregate({
         where: { contract: { agentProfileId: agentProfile.id }, status: "RELEASED" },
-        _sum: { amount: true },
+        _sum: { amountAgentReceives: true },
       }),
       prisma.proposal.count({ where: { agentProfileId: agentProfile.id, status: "PENDING" } }),
     ]);
@@ -231,7 +232,8 @@ users.get("/me/stats/agent", authMiddleware, async (c) => {
     totalJobs: agentProfile.totalJobs,
     activeContracts,
     completed: completedContracts,
-    totalEarned: totalEarnedResult._sum.amount ?? 0,
+    // amountAgentReceives is in cents (after 15% platform fee) — divide by 100 for display
+    totalEarnedCents: totalEarnedResult._sum?.amountAgentReceives ?? 0,
     pendingProposals,
     avgRating: agentProfile.avgRating,
   });
