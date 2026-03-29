@@ -98,6 +98,10 @@ model User {
   coverPic        String?
   bioBrief        String?
   bioDetail       String?
+  instagram       String?
+  facebook        String?
+  x               String?
+  discord         String?
   roles           Role[]
   stripeAccountId String?
   isActive        Boolean       @default(true)

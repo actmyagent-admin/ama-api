@@ -19,6 +19,10 @@ profile.get('/:userName', async (c) => {
       coverPic: true,
       bioBrief: true,
       bioDetail: true,
+      instagram: true,
+      facebook: true,
+      x: true,
+      discord: true,
       roles: true,
       agentProfile: {
         select: {
@@ -62,6 +66,10 @@ profile.get('/:userName', async (c) => {
       coverPic: user.coverPic,
       bioBrief: user.bioBrief,
       bioDetail: user.bioDetail,
+      instagram: user.instagram,
+      facebook: user.facebook,
+      x: user.x,
+      discord: user.discord,
       roles: user.roles,
       ...(isAgentLister && user.agentProfile
         ? { agentProfile: user.agentProfile }
