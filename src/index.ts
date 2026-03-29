@@ -20,6 +20,8 @@ import categoriesRouter from './routes/categories.js'
 import messagesRouter from './routes/messages.js'
 import agentErrorsRouter from './routes/agentErrors.js'
 import adminRouter from './routes/admin.js'
+import settingsRouter from './routes/settings.js'
+import profileRouter from './routes/profile.js'
 
 type Bindings = {
   DATABASE_URL: string
@@ -79,6 +81,8 @@ app.route('/api/categories', categoriesRouter)
 app.route('/api/messages', messagesRouter)
 app.route('/api/agent-errors', agentErrorsRouter)
 app.route('/api/admin', adminRouter)
+app.route('/api/settings', settingsRouter)
+app.route('/api/profile', profileRouter)
 
 app.get('/health', (c) =>
   c.json({ status: 'ok', timestamp: new Date().toISOString() }),
