@@ -89,29 +89,32 @@ enum AiAuditLogStatus {
 }
 
 model User {
-  id              String        @id @default(uuid()) @db.Uuid
-  supabaseId      String        @unique @db.Uuid
-  email           String        @unique
-  userName        String        @unique
-  name            String?
-  mainPic         String?
-  coverPic        String?
-  bioBrief        String?
-  bioDetail       String?
-  instagram       String?
-  facebook        String?
-  x               String?
-  discord         String?
-  roles           Role[]
-  stripeAccountId String?
-  isActive        Boolean       @default(true)
-  createdAt       DateTime      @default(now())
-  updatedAt       DateTime      @updatedAt
-  agentProfile    AgentProfile?
-  jobs            Job[]
-  contracts       Contract[]
-  messages        Message[]
-  aiAuditLogs     AiAuditLog[]
+  id                   String                @id @default(uuid()) @db.Uuid
+  supabaseId           String                @unique @db.Uuid
+  email                String                @unique
+  userName             String                @unique
+  name                 String?
+  mainPic              String?
+  coverPic             String?
+  bioBrief             String?
+  bioDetail            String?
+  instagram            String?
+  facebook             String?
+  x                    String?
+  discord              String?
+  roles                Role[]
+  stripeAccountId      String?
+  isActive             Boolean               @default(true)
+  createdAt            DateTime              @default(now())
+  updatedAt            DateTime              @updatedAt
+  agentProfile         AgentProfile?
+  jobs                 Job[]
+  contracts            Contract[]
+  messages             Message[]
+  aiAuditLogs          AiAuditLog[]
+  stripeConnectAccount StripeConnectAccount?
+  ledgerEntries        LedgerEntry[]
+  payouts              Payout[]
 }
 
 model AgentProfile {
@@ -207,6 +210,7 @@ model Contract {
   delivery       Delivery?
   aiAuditLogs    AiAuditLog[]
   errorLogs      AgentErrorLog[]
+  ledgerEntries  LedgerEntry[]
 }
 
 model Message {
@@ -243,6 +247,7 @@ model Payment {
   refundedAt            DateTime?
   createdAt             DateTime      @default(now())
   updatedAt             DateTime      @updatedAt
+  ledgerEntries         LedgerEntry[]
 }
 
 model Delivery {
@@ -345,4 +350,87 @@ model ContactMessage {
   userAgent   String?
   createdAt   DateTime             @default(now())
   updatedAt   DateTime             @updatedAt
+}
+
+// Stripe Connect account details for AGENT_LISTER users
+model StripeConnectAccount {
+  id                    String    @id @default(uuid()) @db.Uuid
+  userId                String    @unique @db.Uuid
+  user                  User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  stripeAccountId       String    @unique
+  chargesEnabled        Boolean   @default(false)
+  payoutsEnabled        Boolean   @default(false)
+  detailsSubmitted      Boolean   @default(false)
+  accountType           String    @default("standard")
+  country               String?
+  defaultCurrency       String?
+  onboardingCompletedAt DateTime?
+  lastVerifiedAt        DateTime?
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+}
+
+// Platform financial ledger — every money movement as a line item
+model LedgerEntry {
+  id              String    @id @default(uuid()) @db.Uuid
+  paymentId       String    @db.Uuid
+  payment         Payment   @relation(fields: [paymentId], references: [id])
+  contractId      String    @db.Uuid
+  contract        Contract  @relation(fields: [contractId], references: [id])
+  userId          String?   @db.Uuid
+  user            User?     @relation(fields: [userId], references: [id])
+  // 'buyer' | 'agent' | 'platform'
+  partyType       String
+  // 'buyer_charge' | 'agent_payout' | 'platform_fee' | 'buyer_refund' | 'agent_clawback' | 'authorization_hold' | 'authorization_release'
+  entryType       String
+  // Positive = money in, negative = money out (from the perspective of partyType)
+  amountCents     Int
+  currency        String    @default("usd")
+  stripeReference String?
+  // 'pending' | 'completed' | 'failed' | 'reversed'
+  status          String    @default("pending")
+  description     String?
+  metadata        Json?
+  createdAt       DateTime  @default(now())
+  settledAt       DateTime?
+
+  @@index([paymentId])
+  @@index([userId])
+  @@index([contractId])
+  @@index([entryType])
+  @@index([createdAt])
+}
+
+// Tracks individual payouts sent to agent listers
+model Payout {
+  id              String    @id @default(uuid()) @db.Uuid
+  userId          String    @db.Uuid
+  user            User      @relation(fields: [userId], references: [id])
+  stripeAccountId String
+  stripePayoutId  String    @unique
+  amountCents     Int
+  currency        String    @default("usd")
+  // 'pending' | 'paid' | 'failed' | 'canceled'
+  status          String    @default("pending")
+  arrivalDate     DateTime? @db.Date
+  failureMessage  String?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@index([userId])
+}
+
+// Daily platform revenue rollup — populated by a nightly job
+model PlatformRevenue {
+  id             String   @id @default(uuid()) @db.Uuid
+  date           DateTime @unique @db.Date
+  grossVolumeGMV Int      @default(0)
+  platformFees   Int      @default(0)
+  refundsIssued  Int      @default(0)
+  netRevenue     Int      @default(0)
+  completedJobs  Int      @default(0)
+  disputedJobs   Int      @default(0)
+  refundedJobs   Int      @default(0)
+  currency       String   @default("usd")
+  createdAt      DateTime @default(now())
 }

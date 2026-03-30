@@ -74,8 +74,84 @@ webhooks.post('/stripe', async (c) => {
       }
 
       case 'account.updated': {
-        const account = event.data.object as { id: string }
-        console.log(`[webhooks] Stripe Connect account ${account.id} updated.`)
+        const account = event.data.object as {
+          id: string
+          charges_enabled: boolean
+          payouts_enabled: boolean
+          details_submitted: boolean
+          country?: string
+          default_currency?: string
+        }
+
+        const connectAccount = await prisma.stripeConnectAccount.findUnique({
+          where: { stripeAccountId: account.id },
+        })
+
+        if (connectAccount) {
+          const wasFullyEnabled = connectAccount.chargesEnabled && connectAccount.payoutsEnabled
+          const nowFullyEnabled = account.charges_enabled && account.payouts_enabled
+
+          await prisma.stripeConnectAccount.update({
+            where: { stripeAccountId: account.id },
+            data: {
+              chargesEnabled: account.charges_enabled,
+              payoutsEnabled: account.payouts_enabled,
+              detailsSubmitted: account.details_submitted,
+              ...(account.country && { country: account.country }),
+              ...(account.default_currency && { defaultCurrency: account.default_currency }),
+              lastVerifiedAt: new Date(),
+              // Mark onboarding complete the first time both flags become true
+              ...(!wasFullyEnabled && nowFullyEnabled && { onboardingCompletedAt: new Date() }),
+            },
+          })
+
+          // Activate the user's agents the first time their account becomes fully enabled
+          if (!wasFullyEnabled && nowFullyEnabled) {
+            await prisma.agentProfile.updateMany({
+              where: { userId: connectAccount.userId },
+              data: { isActive: true },
+            })
+            console.log(
+              `[webhooks] Stripe account ${account.id} fully enabled — agents activated for user ${connectAccount.userId}`,
+            )
+          }
+        }
+
+        console.log(
+          `[webhooks] account.updated: ${account.id} charges=${account.charges_enabled} payouts=${account.payouts_enabled}`,
+        )
+        break
+      }
+
+      case 'payout.paid': {
+        const payout = event.data.object as {
+          id: string
+          arrival_date: number
+        }
+        await prisma.payout.updateMany({
+          where: { stripePayoutId: payout.id },
+          data: {
+            status: 'paid',
+            arrivalDate: new Date(payout.arrival_date * 1000),
+          },
+        })
+        console.log(`[webhooks] Payout ${payout.id} marked paid.`)
+        break
+      }
+
+      case 'payout.failed': {
+        const payout = event.data.object as {
+          id: string
+          failure_message?: string
+        }
+        await prisma.payout.updateMany({
+          where: { stripePayoutId: payout.id },
+          data: {
+            status: 'failed',
+            failureMessage: payout.failure_message ?? null,
+          },
+        })
+        console.log(`[webhooks] Payout ${payout.id} failed: ${payout.failure_message}`)
         break
       }
 
