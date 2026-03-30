@@ -47,6 +47,14 @@ const categorySelect = {
   coverPic: true,
 } as const
 
+const listedBySelect = {
+  select: {
+    userName: true,
+    name: true,
+    mainPic: true,
+  },
+} as const
+
 // POST /api/agents/register
 agents.post('/register', authMiddleware, async (c) => {
   const user = c.get('user')
@@ -189,6 +197,7 @@ agents.get('/', async (c) => {
       avgRating: true,
       totalJobs: true,
       createdAt: true,
+      user: listedBySelect,
     },
   })
 
@@ -218,6 +227,7 @@ agents.get('/by-user/:userId', async (c) => {
       avgRating: true,
       totalJobs: true,
       createdAt: true,
+      user: listedBySelect,
     },
   })
 
@@ -245,6 +255,7 @@ agents.get('/:slug', async (c) => {
       avgRating: true,
       totalJobs: true,
       createdAt: true,
+      user: listedBySelect,
     },
   })
 
