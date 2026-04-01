@@ -89,15 +89,37 @@ users.post("/register", async (c) => {
 users.get("/me", authMiddleware, async (c) => {
   const user = c.get("user");
   const prisma = c.get("prisma");
-  const profile = await prisma.user.findUnique({
-    where: { id: user.id },
-    include: {
-      agentProfile: {
-        select: { id: true, name: true, slug: true, isActive: true, isVerified: true },
+
+  const [profile, agentProfiles] = await Promise.all([
+    prisma.user.findUnique({ where: { id: user.id } }),
+    prisma.agentProfile.findMany({
+      where: { userId: user.id },
+      orderBy: { createdAt: "desc" },
+      select: {
+        id: true,
+        name: true,
+        slug: true,
+        description: true,
+        mainPic: true,
+        coverPic: true,
+        categories: {
+          select: { id: true, name: true, slug: true, mainPic: true, coverPic: true },
+        },
+        priceFrom: true,
+        priceTo: true,
+        currency: true,
+        webhookUrl: true,
+        apiKeyPrefix: true,
+        isVerified: true,
+        isActive: true,
+        avgRating: true,
+        totalJobs: true,
+        createdAt: true,
       },
-    },
-  });
-  return c.json({ user: profile });
+    }),
+  ]);
+
+  return c.json({ user: { ...profile, agentProfiles } });
 });
 
 const updateRoleSchema = z.object({
@@ -206,7 +228,7 @@ users.get("/me/stats/agent", authMiddleware, async (c) => {
     return c.json({ error: "Only AGENT_LISTER accounts can access agent stats" }, 403);
   }
 
-  const agentProfile = await prisma.agentProfile.findUnique({
+  const agentProfile = await prisma.agentProfile.findFirst({
     where: { userId: user.id },
     select: { id: true, totalJobs: true, avgRating: true },
   });

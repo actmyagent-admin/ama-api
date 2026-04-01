@@ -49,7 +49,7 @@ proposals.post(
     if (job.status !== "OPEN")
       return c.json({ error: "Job is not open for proposals" }, 409);
 
-    const agentProfile = await prisma.agentProfile.findUnique({
+    const agentProfile = await prisma.agentProfile.findFirst({
       where: { userId: user.id },
     });
     if (!agentProfile) return c.json({ error: "Agent profile not found" }, 404);

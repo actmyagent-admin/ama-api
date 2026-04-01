@@ -17,6 +17,16 @@ const registerSchema = z.object({
   webhookUrl: z.string().url(),
 })
 
+const updateAgentSchema = z.object({
+  name: z.string().min(1).optional(),
+  description: z.string().min(1).optional(),
+  priceFrom: z.number().positive().optional(),
+  priceTo: z.number().positive().optional(),
+  webhookUrl: z.string().url().optional(),
+  coverPic: z.string().url().nullable().optional(),
+  categorySlugs: z.array(z.string()).min(1).optional(),
+})
+
 function toSlug(name: string): string {
   return name
     .toLowerCase()
@@ -55,6 +65,25 @@ const listedBySelect = {
   },
 } as const
 
+const agentProfileSelect = {
+  id: true,
+  name: true,
+  slug: true,
+  description: true,
+  mainPic: true,
+  coverPic: true,
+  categories: { select: categorySelect },
+  priceFrom: true,
+  priceTo: true,
+  currency: true,
+  isVerified: true,
+  isActive: true,
+  avgRating: true,
+  totalJobs: true,
+  createdAt: true,
+  user: listedBySelect,
+} as const
+
 // POST /api/agents/register
 agents.post('/register', authMiddleware, async (c) => {
   const user = c.get('user')
@@ -64,9 +93,9 @@ agents.post('/register', authMiddleware, async (c) => {
     return c.json({ error: 'Only AGENT_LISTER accounts can register agents' }, 403)
   }
 
-  const existing = await prisma.agentProfile.findUnique({ where: { userId: user.id } })
-  if (existing) {
-    return c.json({ error: 'Agent profile already exists for this user' }, 409)
+  const existingCount = await prisma.agentProfile.count({ where: { userId: user.id } })
+  if (existingCount >= 3) {
+    return c.json({ error: 'Maximum limit reached' }, 403)
   }
 
   let body: z.infer<typeof registerSchema>
@@ -121,6 +150,48 @@ agents.post('/register', authMiddleware, async (c) => {
     },
     201,
   )
+})
+
+// PATCH /api/agents/:id — update agent profile fields (owner only)
+agents.patch('/:id', authMiddleware, async (c) => {
+  const user = c.get('user')
+  const prisma = c.get('prisma')
+  const id = c.req.param('id')
+
+  const profile = await prisma.agentProfile.findUnique({ where: { id } })
+  if (!profile) return c.json({ error: 'Agent profile not found' }, 404)
+  if (profile.userId !== user.id) return c.json({ error: 'Forbidden' }, 403)
+
+  let body: z.infer<typeof updateAgentSchema>
+  try {
+    body = updateAgentSchema.parse(await c.req.json())
+  } catch (err) {
+    return c.json({ error: 'Invalid request body', details: err }, 400)
+  }
+
+  const effectivePriceFrom = body.priceFrom ?? profile.priceFrom
+  const effectivePriceTo = body.priceTo ?? profile.priceTo
+  if (effectivePriceTo < effectivePriceFrom) {
+    return c.json({ error: 'priceTo must be >= priceFrom' }, 400)
+  }
+
+  const updated = await prisma.agentProfile.update({
+    where: { id },
+    data: {
+      ...(body.name !== undefined && { name: body.name }),
+      ...(body.description !== undefined && { description: body.description }),
+      ...(body.priceFrom !== undefined && { priceFrom: body.priceFrom }),
+      ...(body.priceTo !== undefined && { priceTo: body.priceTo }),
+      ...(body.webhookUrl !== undefined && { webhookUrl: body.webhookUrl }),
+      ...(body.coverPic !== undefined && { coverPic: body.coverPic }),
+      ...(body.categorySlugs !== undefined && {
+        categories: { set: body.categorySlugs.map((s) => ({ slug: s })) },
+      }),
+    },
+    select: agentProfileSelect,
+  })
+
+  return c.json({ agentProfile: updated })
 })
 
 // POST /api/agents/:id/regenerate-key
@@ -182,23 +253,7 @@ agents.get('/', async (c) => {
     take: limit,
     skip: offset,
     orderBy: { createdAt: 'desc' },
-    select: {
-      id: true,
-      name: true,
-      slug: true,
-      description: true,
-      mainPic: true,
-      coverPic: true,
-      categories: { select: categorySelect },
-      priceFrom: true,
-      priceTo: true,
-      currency: true,
-      isVerified: true,
-      avgRating: true,
-      totalJobs: true,
-      createdAt: true,
-      user: listedBySelect,
-    },
+    select: agentProfileSelect,
   })
 
   return c.json({ agentProfiles, limit, offset })
@@ -212,23 +267,7 @@ agents.get('/by-user/:userId', async (c) => {
   const agentProfiles = await prisma.agentProfile.findMany({
     where: { userId, isActive: true },
     orderBy: { createdAt: 'desc' },
-    select: {
-      id: true,
-      name: true,
-      slug: true,
-      description: true,
-      mainPic: true,
-      coverPic: true,
-      categories: { select: categorySelect },
-      priceFrom: true,
-      priceTo: true,
-      currency: true,
-      isVerified: true,
-      avgRating: true,
-      totalJobs: true,
-      createdAt: true,
-      user: listedBySelect,
-    },
+    select: agentProfileSelect,
   })
 
   return c.json({ agentProfiles })
@@ -240,23 +279,7 @@ agents.get('/:slug', async (c) => {
   const slug = c.req.param('slug')
   const agentProfile = await prisma.agentProfile.findUnique({
     where: { slug },
-    select: {
-      id: true,
-      name: true,
-      slug: true,
-      description: true,
-      mainPic: true,
-      coverPic: true,
-      categories: { select: categorySelect },
-      priceFrom: true,
-      priceTo: true,
-      currency: true,
-      isVerified: true,
-      avgRating: true,
-      totalJobs: true,
-      createdAt: true,
-      user: listedBySelect,
-    },
+    select: agentProfileSelect,
   })
 
   if (!agentProfile) {
