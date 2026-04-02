@@ -24,7 +24,7 @@ profile.get('/:userName', async (c) => {
       x: true,
       discord: true,
       roles: true,
-      agentProfile: {
+      agentProfiles: {
         select: {
           id: true,
           name: true,
@@ -71,8 +71,8 @@ profile.get('/:userName', async (c) => {
       x: user.x,
       discord: user.discord,
       roles: user.roles,
-      ...(isAgentLister && user.agentProfile
-        ? { agentProfile: user.agentProfile }
+      ...(isAgentLister && user.agentProfiles.length > 0
+        ? { agentProfiles: user.agentProfiles }
         : {}),
     },
   })
