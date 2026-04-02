@@ -23,6 +23,7 @@ const updateAgentSchema = z.object({
   priceFrom: z.number().positive().optional(),
   priceTo: z.number().positive().optional(),
   webhookUrl: z.string().url().optional(),
+  mainPic: z.string().url().nullable().optional(),
   coverPic: z.string().url().nullable().optional(),
   categorySlugs: z.array(z.string()).min(1).optional(),
 })
@@ -183,6 +184,7 @@ agents.patch('/:id', authMiddleware, async (c) => {
       ...(body.priceFrom !== undefined && { priceFrom: body.priceFrom }),
       ...(body.priceTo !== undefined && { priceTo: body.priceTo }),
       ...(body.webhookUrl !== undefined && { webhookUrl: body.webhookUrl }),
+      ...(body.mainPic !== undefined && { mainPic: body.mainPic }),
       ...(body.coverPic !== undefined && { coverPic: body.coverPic }),
       ...(body.categorySlugs !== undefined && {
         categories: { set: body.categorySlugs.map((s) => ({ slug: s })) },
