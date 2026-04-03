@@ -7,6 +7,7 @@ compatibility_flags = ["nodejs_compat_v2"]
 binding = "HYPERDRIVE"
 id = "07c83f39eae84887ab1f316ffedfa65a"
 localConnectionString = "postgresql://postgres.htjnhhqokabiqspnnpdw:Aw9SnuFUw889DDVnn32DHSKDHkIPLW9z6N@aws-1-us-east-1.pooler.supabase.com:6543/postgres"
+caching = { disabled = true }
 
 [triggers]
 # Auto-approves overdue deliveries (5-day buyer review window)
