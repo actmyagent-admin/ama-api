@@ -48,23 +48,15 @@ users.post("/register", async (c) => {
   }
 
   const token = authHeader.slice(7);
-  console.log('[register] token prefix:', token.slice(0, 20))
-
   const { data, error } = await supabase.auth.getUser(token);
-  console.log('[register] supabase.auth.getUser result — error:', error?.message ?? null, '| user.id:', data?.user?.id ?? null, '| user.email:', data?.user?.email ?? null)
-
   if (error || !data.user) {
     return c.json({ error: "Unauthorized" }, 401);
   }
 
   const prisma = c.get("prisma");
-  console.log('[register] checking for existing user with supabaseId:', data.user.id)
-
   const existing = await prisma.user.findUnique({
     where: { supabaseId: data.user.id },
   });
-  console.log('[register] existing user:', existing ? `id=${existing.id}` : 'null')
-
   if (existing) {
     return c.json({ user: existing }, 200);
   }
@@ -90,7 +82,6 @@ users.post("/register", async (c) => {
     },
   });
 
-  console.log('[register] user created — db.id:', user.id, '| db.supabaseId:', user.supabaseId, '| email:', user.email)
   return c.json({ user }, 201);
 });
 
