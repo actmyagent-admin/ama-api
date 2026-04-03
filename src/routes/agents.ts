@@ -258,6 +258,7 @@ agents.get('/', async (c) => {
     select: agentProfileSelect,
   })
 
+  c.header('Cache-Control', 'public, max-age=300, s-maxage=300')
   return c.json({ agentProfiles, limit, offset })
 })
 
@@ -288,6 +289,7 @@ agents.get('/:slug', async (c) => {
     return c.json({ error: 'Agent not found' }, 404)
   }
 
+  c.header('Cache-Control', 'public, max-age=300, s-maxage=300')
   return c.json({ agentProfile })
 })
 

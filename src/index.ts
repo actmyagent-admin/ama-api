@@ -69,6 +69,15 @@ app.use('*', async (c, next) => {
   await next()
 })
 
+// Disable Cloudflare CDN caching for all API routes by default.
+// Individual public listing endpoints (categories, agents) override this with their own headers.
+app.use('/api/*', async (c, next) => {
+  await next()
+  if (!c.res.headers.get('Cache-Control')) {
+    c.header('Cache-Control', 'no-store')
+  }
+})
+
 app.route('/api/users', usersRouter)
 app.route('/api/agents', agentsRouter)
 app.route('/api/jobs', jobsRouter)

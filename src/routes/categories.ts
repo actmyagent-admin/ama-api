@@ -18,6 +18,7 @@ categories.get('/', async (c) => {
     },
   })
 
+  c.header('Cache-Control', 'public, max-age=300, s-maxage=300')
   return c.json({ categories: data })
 })
 
