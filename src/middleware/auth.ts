@@ -21,6 +21,15 @@ export async function authMiddleware(c: Context<{ Variables: Variables }>, next:
   const prisma = c.get('prisma')
   console.log('[auth] looking up DB user with supabaseId:', data.user.id)
 
+  // Raw SQL to bypass ORM and check what the DB actually contains
+  const rawRows = await prisma.$queryRaw<{ id: string; supabaseId: string; email: string }[]>`
+    SELECT id, "supabaseId", email FROM "User" WHERE "supabaseId" = ${data.user.id}::uuid LIMIT 1
+  `
+  console.log('[auth] raw SQL by supabaseId:', JSON.stringify(rawRows))
+
+  const totalCount = await prisma.$queryRaw<{ count: string }[]>`SELECT COUNT(*)::text AS count FROM "User"`
+  console.log('[auth] total users in DB:', totalCount[0]?.count)
+
   const user = await prisma.user.findUnique({
     where: { supabaseId: data.user.id },
   })

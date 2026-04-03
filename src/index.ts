@@ -65,6 +65,10 @@ app.use(
 // This avoids the cold-start TCP hang caused by the module-level singleton pattern.
 app.use('*', async (c, next) => {
   const connectionString = c.env.HYPERDRIVE?.connectionString ?? c.env.DATABASE_URL
+  const connSource = c.env.HYPERDRIVE ? 'hyperdrive' : 'DATABASE_URL'
+  // Log host only — never log full connection string (contains password)
+  const connHost = connectionString?.match(/@([^/]+)/)?.[1] ?? 'unknown'
+  console.log(`[db] conn source=${connSource} host=${connHost} path=${c.req.path}`)
   c.set('prisma', createPrisma(connectionString))
   await next()
 })
