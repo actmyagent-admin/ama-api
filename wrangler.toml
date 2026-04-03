@@ -30,6 +30,7 @@ crons = ["0 * * * *"]
 FRONTEND_URL = "https://actmyagent.com"
 
 [observability]
+enabled = true
 [observability.logs]
 enabled = true
 invocation_logs = true
