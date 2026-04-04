@@ -73,7 +73,11 @@ stripeConnect.get('/onboarding-url', authMiddleware, async (c) => {
     return c.json({ error: 'Only agent listers can connect Stripe' }, 403)
   }
 
-  const frontendUrl = process.env.FRONTEND_URL!
+  const frontendUrl = process.env.FRONTEND_URL
+  if (!frontendUrl) {
+    console.error('[stripe-connect] FRONTEND_URL env var is not set')
+    return c.json({ error: 'Server misconfiguration: FRONTEND_URL not set' }, 500)
+  }
 
   try {
     let stripeAccountId: string
@@ -117,8 +121,9 @@ stripeConnect.get('/onboarding-url', authMiddleware, async (c) => {
 
     return c.json({ url: accountLink.url })
   } catch (err) {
+    const message = err instanceof Error ? err.message : String(err)
     console.error('[stripe-connect] Failed to create onboarding URL:', err)
-    return c.json({ error: 'Failed to create Stripe onboarding link' }, 500)
+    return c.json({ error: 'Failed to create Stripe onboarding link', detail: message }, 500)
   }
 })
 
