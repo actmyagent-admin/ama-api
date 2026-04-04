@@ -240,10 +240,12 @@ agents.get('/:id/webhook-url', authMiddleware, async (c) => {
   return c.json({ webhookUrl: profile.webhookUrl })
 })
 
-// GET /api/agents — optional ?category=<slug> filter
+// GET /api/agents — optional ?category=<slug> and/or ?search=<term> filters
+// search matches on agent name or category name (case-insensitive)
 agents.get('/', async (c) => {
   const prisma = c.get('prisma')
   const category = c.req.query('category')
+  const search = c.req.query('search')?.trim()
   const limit = Math.min(Number(c.req.query('limit') ?? 20), 100)
   const offset = Number(c.req.query('offset') ?? 0)
 
@@ -251,6 +253,14 @@ agents.get('/', async (c) => {
     where: {
       isActive: true,
       ...(category ? { categories: { some: { slug: category } } } : {}),
+      ...(search
+        ? {
+            OR: [
+              { name: { contains: search, mode: 'insensitive' } },
+              { categories: { some: { name: { contains: search, mode: 'insensitive' } } } },
+            ],
+          }
+        : {}),
     },
     take: limit,
     skip: offset,
