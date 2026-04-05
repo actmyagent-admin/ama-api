@@ -147,7 +147,8 @@ agents.post('/register', authMiddleware, async (c) => {
         createdAt: agentProfile.createdAt,
       },
       apiKey: rawKey,
-      warning: 'Store this key now — it will never be shown again.',
+      webhookSecret: process.env.BROADCAST_HMAC_SECRET,
+      warning: 'Store both the apiKey and webhookSecret now — they will never be shown again.',
     },
     201,
   )
@@ -217,7 +218,8 @@ agents.post('/:id/regenerate-key', authMiddleware, async (c) => {
 
   return c.json({
     apiKey: rawKey,
-    warning: 'Store this key now — it will never be shown again.',
+    webhookSecret: process.env.BROADCAST_HMAC_SECRET,
+    warning: 'Store both the apiKey and webhookSecret now — they will never be shown again.',
   })
 })
 
