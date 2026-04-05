@@ -2,6 +2,8 @@ import { createHmac } from "node:crypto";
 import type { Job } from "@prisma/client";
 import type { PrismaClient } from "@prisma/client";
 
+const MAX_RESPONSE_BODY_BYTES = 2048;
+
 export async function broadcastJob(
   job: Job,
   prisma: PrismaClient,
@@ -35,11 +37,23 @@ export async function broadcastJob(
     .update(payloadStr)
     .digest("hex");
 
+  const totalAgentsInBatch = agents.length;
+
   const results = await Promise.allSettled(
     agents.map(async (agent) => {
+      const attemptedAt = new Date();
       const controller = new AbortController();
       const timer = setTimeout(() => controller.abort(), 5000);
+
+      let status: "SUCCESS" | "HTTP_ERROR" | "TIMEOUT" | "FAILED" = "FAILED";
+      let httpStatus: number | null = null;
+      let responseBody: string | null = null;
+      let errorMessage: string | null = null;
+      let respondedAt: Date | null = null;
+      let durationMs: number | null = null;
+
       try {
+        const start = Date.now();
         const res = await fetch(agent.webhookUrl, {
           method: "POST",
           headers: {
@@ -49,19 +63,61 @@ export async function broadcastJob(
           body: payloadStr,
           signal: controller.signal,
         });
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        console.log(
-          `[broadcast] Sent to agent ${agent.id} (${agent.name}): OK`,
-        );
+
+        durationMs = Date.now() - start;
+        respondedAt = new Date();
+        httpStatus = res.status;
+
+        const rawBody = await res.text().catch(() => null);
+        if (rawBody) {
+          responseBody = rawBody.length > MAX_RESPONSE_BODY_BYTES
+            ? rawBody.slice(0, MAX_RESPONSE_BODY_BYTES) + "…[truncated]"
+            : rawBody;
+        }
+
+        if (res.ok) {
+          status = "SUCCESS";
+        } else {
+          status = "HTTP_ERROR";
+          errorMessage = `HTTP ${res.status}`;
+          throw new Error(errorMessage);
+        }
+      } catch (err) {
+        if (status !== "HTTP_ERROR") {
+          const isTimeout =
+            err instanceof Error && err.name === "AbortError";
+          status = isTimeout ? "TIMEOUT" : "FAILED";
+          errorMessage = err instanceof Error ? err.message : String(err);
+          if (!durationMs) durationMs = Date.now() - attemptedAt.getTime();
+        }
       } finally {
         clearTimeout(timer);
+
+        await prisma.broadcastLog.create({
+          data: {
+            jobId: job.id,
+            agentProfileId: agent.id,
+            webhookUrl: agent.webhookUrl,
+            status,
+            httpStatus,
+            responseBody,
+            errorMessage,
+            durationMs,
+            totalAgentsInBatch,
+            attemptedAt,
+            respondedAt,
+          },
+        });
       }
     }),
   );
 
   const successCount = results.filter((r) => r.status === "fulfilled").length;
   const failCount = results.length - successCount;
-  if (failCount > 0) console.log(`[broadcast] ${failCount} webhooks failed`);
+
+  console.log(
+    `[broadcast] job=${job.id} total=${totalAgentsInBatch} ok=${successCount} failed=${failCount}`,
+  );
 
   return successCount;
 }

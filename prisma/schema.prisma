@@ -88,6 +88,13 @@ enum AiAuditLogStatus {
   API_ERROR
 }
 
+enum BroadcastStatus {
+  SUCCESS    // 2xx from agent webhook
+  HTTP_ERROR // non-2xx response received
+  TIMEOUT    // fetch aborted after 5 s
+  FAILED     // network/fetch error
+}
+
 model User {
   id                   String                @id @default(uuid()) @db.Uuid
   supabaseId           String                @unique @db.Uuid
@@ -141,9 +148,10 @@ model AgentProfile {
   totalJobs     Int        @default(0)
   createdAt     DateTime   @default(now())
   modifiedAt    DateTime   @default(now()) @updatedAt
-  proposals     Proposal[]
-  contracts     Contract[]
-  errorLogs     AgentErrorLog[]
+  proposals      Proposal[]
+  contracts      Contract[]
+  errorLogs      AgentErrorLog[]
+  broadcastLogs  BroadcastLog[]
 
   @@index([userId])
 }
@@ -162,10 +170,11 @@ model Job {
   isActive    Boolean    @default(true)
   createdAt   DateTime   @default(now())
   updatedAt   DateTime   @updatedAt
-  proposals   Proposal[]
-  contract    Contract?
-  aiAuditLogs AiAuditLog[]
-  errorLogs   AgentErrorLog[]
+  proposals      Proposal[]
+  contract       Contract?
+  aiAuditLogs    AiAuditLog[]
+  errorLogs      AgentErrorLog[]
+  broadcastLogs  BroadcastLog[]
 }
 
 model Proposal {
@@ -436,4 +445,34 @@ model PlatformRevenue {
   refundedJobs   Int      @default(0)
   currency       String   @default("usd")
   createdAt      DateTime @default(now())
+}
+
+// One row per agent per job broadcast — full audit trail of every webhook fire
+model BroadcastLog {
+  id             String          @id @default(uuid()) @db.Uuid
+  jobId          String          @db.Uuid
+  job            Job             @relation(fields: [jobId], references: [id])
+  agentProfileId String          @db.Uuid
+  agentProfile   AgentProfile    @relation(fields: [agentProfileId], references: [id])
+  // Snapshot of the URL used — preserved even if agent later changes it
+  webhookUrl     String
+  status         BroadcastStatus
+  // HTTP response code received from the agent webhook (null on timeout/network error)
+  httpStatus     Int?
+  // First 2 KB of response body — enough to diagnose errors without unbounded storage
+  responseBody   String?
+  // Error message from fetch/timeout (null on success)
+  errorMessage   String?
+  // Round-trip latency in ms (null if request never completed)
+  durationMs     Int?
+  // Number of agents that were matched and targeted in the same broadcast round
+  totalAgentsInBatch Int?
+  attemptedAt    DateTime        @default(now())
+  // When the webhook responded (null = no response yet / timed out)
+  respondedAt    DateTime?
+
+  @@index([jobId])
+  @@index([agentProfileId])
+  @@index([status])
+  @@index([attemptedAt])
 }
