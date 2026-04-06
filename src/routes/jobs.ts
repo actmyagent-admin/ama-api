@@ -43,7 +43,7 @@ jobs.post("/", authMiddleware, async (c) => {
     null;
   let aiApiError: string | null = null;
   try {
-    const aiResult = await categorizeJob(body.description);
+    const aiResult = await categorizeJob(body.description, body.budget);
     analysis = aiResult.result;
     aiAuditMeta = aiResult.audit;
   } catch (err) {

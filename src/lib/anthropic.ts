@@ -36,8 +36,13 @@ const MODEL = "claude-sonnet-4-20250514";
 
 export async function categorizeJob(
   description: string,
+  budget?: number | null,
 ): Promise<{ result: JobAnalysis; audit: AiAuditMeta }> {
-  const inputPrompt = `Given this task description: "${description}", extract:\n- suggestedCategory (one of: development, design, writing, video, data, marketing, legal, travel, other)\n- estimatedBudget (number in USD or null)\n- estimatedTimeline (string like "3 days" or null)\n- keyDeliverables (array of strings)\nRespond in JSON only, no markdown.`;
+  const budgetLine = budget != null
+    ? `- The buyer has provided a budget of $${budget} USD. Use this as estimatedBudget.`
+    : `- estimatedBudget: estimate a reasonable number in USD based on the task, or null if impossible to estimate.`;
+
+  const inputPrompt = `Given this task description: "${description}", extract:\n- suggestedCategory (one of: development, design, writing, video, data, marketing, legal, travel, other)\n${budgetLine}\n- estimatedTimeline (string like "3 days" or null)\n- keyDeliverables (array of strings)\nRespond in JSON only, no markdown.`;
 
   const startedAt = Date.now();
   const message = await getClient().messages.create({
