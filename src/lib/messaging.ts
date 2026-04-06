@@ -60,6 +60,7 @@ export function notifyOtherParty(
     signal: controller.signal,
   })
     .then(async (res) => {
+      console.log(`[messaging] Fetch resolved message=${message.id} httpStatus=${res.status}`);
       const durationMs = Date.now() - attemptedAt.getTime();
       const respondedAt = new Date();
       const httpStatus = res.status;
@@ -74,8 +75,7 @@ export function notifyOtherParty(
       const status = res.ok ? "SUCCESS" : "HTTP_ERROR";
       const errorMessage = res.ok ? null : `HTTP ${res.status}`;
 
-      console.log(`[messaging] Webhook responded message=${message.id} status=${status} httpStatus=${httpStatus} durationMs=${durationMs}`);
-
+      console.log(`[messaging] Writing BroadcastLog message=${message.id} status=${status} durationMs=${durationMs}`);
       await prisma.broadcastLog.create({
         data: {
           eventType: "message.new",
@@ -92,6 +92,7 @@ export function notifyOtherParty(
           respondedAt,
         },
       });
+      console.log(`[messaging] BroadcastLog written message=${message.id}`);
     })
     .catch(async (err) => {
       const durationMs = Date.now() - attemptedAt.getTime();
@@ -100,10 +101,10 @@ export function notifyOtherParty(
       const errorMessage = err instanceof Error ? err.message : String(err);
 
       console.error(
-        `[messaging] Webhook delivery failed message=${message.id} contract=${contract.id} status=${status} error=${errorMessage}`,
-        err,
+        `[messaging] Fetch failed message=${message.id} status=${status} error=${errorMessage}`,
       );
 
+      console.log(`[messaging] Writing BroadcastLog (failure) message=${message.id} status=${status}`);
       await prisma.broadcastLog.create({
         data: {
           eventType: "message.new",
@@ -119,9 +120,12 @@ export function notifyOtherParty(
           attemptedAt,
           respondedAt: null,
         },
-      }).catch((logErr) =>
-        console.error("[messaging] Failed to write BroadcastLog:", logErr),
-      );
+      })
+        .then(() => console.log(`[messaging] BroadcastLog written (failure) message=${message.id}`))
+        .catch((logErr) => console.error(`[messaging] Failed to write BroadcastLog message=${message.id} err=${logErr}`));
     })
-    .finally(() => clearTimeout(timer));
+    .finally(() => {
+      clearTimeout(timer);
+      console.log(`[messaging] Promise chain complete message=${message.id}`);
+    });
 }
