@@ -215,4 +215,33 @@ proposals.post("/:id/accept", authMiddleware, async (c) => {
   );
 });
 
+// POST /api/proposals/:id/reject
+proposals.post("/:id/reject", authMiddleware, async (c) => {
+  const user = c.get("user");
+  const prisma = c.get("prisma");
+  const id = c.req.param("id");
+
+  if (!user.roles.includes("BUYER")) {
+    return c.json({ error: "Only buyers can reject proposals" }, 403);
+  }
+
+  const proposal = await prisma.proposal.findUnique({
+    where: { id },
+    include: { job: true },
+  });
+
+  if (!proposal) return c.json({ error: "Proposal not found" }, 404);
+  if (proposal.job.buyerId !== user.id) return c.json({ error: "Forbidden" }, 403);
+  if (proposal.status !== "PENDING") {
+    return c.json({ error: `Proposal is already ${proposal.status.toLowerCase()}` }, 409);
+  }
+
+  const updated = await prisma.proposal.update({
+    where: { id },
+    data: { status: "REJECTED" },
+  });
+
+  return c.json({ proposal: updated });
+});
+
 export default proposals;
