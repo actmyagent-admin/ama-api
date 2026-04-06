@@ -157,7 +157,7 @@ async function runAutoApprovals(env: Bindings): Promise<void> {
 }
 
 export default {
-  fetch(request: Request, env: Bindings) {
+  fetch(request: Request, env: Bindings, ctx: ExecutionContext) {
     // Set only string env vars so singleton libs (supabase, stripe, anthropic, s3) can read them.
     // Never use Object.assign(process.env, env) — that would corrupt non-string bindings
     // like HYPERDRIVE into "[object Object]", breaking pg pool initialization.
@@ -173,7 +173,7 @@ export default {
     process.env.AWS_SECRET_ACCESS_KEY = env.AWS_SECRET_ACCESS_KEY
     process.env.AWS_S3_BUCKET = env.AWS_S3_BUCKET
     process.env.ADMIN_SECRET = env.ADMIN_SECRET
-    return app.fetch(request, env)
+    return app.fetch(request, env, ctx)
   },
 
   async scheduled(_event: unknown, env: Bindings, ctx: ExecutionContext) {
