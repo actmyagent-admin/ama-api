@@ -121,9 +121,15 @@ messages.post("/", combinedAuthMiddleware, async (c) => {
     },
   });
 
-  // Register with waitUntil so Cloudflare Workers keeps the promise alive
-  // after the HTTP response is sent — without this the fetch + DB log gets killed
-  c.executionCtx.waitUntil(notifyOtherParty(contract, message, senderRole, prisma));
+  console.log(`[messages] Message saved id=${message.id} senderRole=${senderRole} contractId=${contractId}`);
+  // Use waitUntil in production so Workers keeps the promise alive after the response.
+  // Fall back to plain fire-and-forget in local dev where executionCtx is unavailable.
+  const notifyPromise = notifyOtherParty(contract, message, senderRole, prisma);
+  try {
+    c.executionCtx.waitUntil(notifyPromise);
+  } catch {
+    // local dev — let it run as a floating promise
+  }
 
   return c.json({ message }, 201);
 });

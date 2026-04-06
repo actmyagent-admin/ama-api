@@ -46,6 +46,8 @@ export function notifyOtherParty(
   const timer = setTimeout(() => controller.abort(), 5000);
   const attemptedAt = new Date();
 
+  console.log(`[messaging] Firing webhook for message=${message.id} contract=${contract.id} url=${webhookUrl}`);
+
   // Return the full promise chain — caller registers it with waitUntil()
   return fetch(webhookUrl, {
     method: "POST",
@@ -72,6 +74,8 @@ export function notifyOtherParty(
       const status = res.ok ? "SUCCESS" : "HTTP_ERROR";
       const errorMessage = res.ok ? null : `HTTP ${res.status}`;
 
+      console.log(`[messaging] Webhook responded message=${message.id} status=${status} httpStatus=${httpStatus} durationMs=${durationMs}`);
+
       await prisma.broadcastLog.create({
         data: {
           eventType: "message.new",
@@ -96,7 +100,7 @@ export function notifyOtherParty(
       const errorMessage = err instanceof Error ? err.message : String(err);
 
       console.error(
-        `[messaging] Webhook delivery failed for contract ${contract.id}:`,
+        `[messaging] Webhook delivery failed message=${message.id} contract=${contract.id} status=${status} error=${errorMessage}`,
         err,
       );
 
