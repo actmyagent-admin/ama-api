@@ -121,8 +121,9 @@ messages.post("/", combinedAuthMiddleware, async (c) => {
     },
   });
 
-  // Notify the other party — never awaited in a way that can block the response
-  notifyOtherParty(contract, message, senderRole, prisma);
+  // Register with waitUntil so Cloudflare Workers keeps the promise alive
+  // after the HTTP response is sent — without this the fetch + DB log gets killed
+  c.executionCtx.waitUntil(notifyOtherParty(contract, message, senderRole, prisma));
 
   return c.json({ message }, 201);
 });
