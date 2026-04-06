@@ -32,6 +32,7 @@ type Bindings = {
   STRIPE_WEBHOOK_SECRET: string
   ANTHROPIC_API_KEY: string
   FRONTEND_URL: string
+  API_URL: string
   BROADCAST_HMAC_SECRET: string
   AWS_REGION: string
   AWS_ACCESS_KEY_ID: string
@@ -167,6 +168,7 @@ export default {
     process.env.STRIPE_WEBHOOK_SECRET = env.STRIPE_WEBHOOK_SECRET
     process.env.ANTHROPIC_API_KEY = env.ANTHROPIC_API_KEY
     process.env.FRONTEND_URL = env.FRONTEND_URL
+    process.env.API_URL = env.API_URL
     process.env.BROADCAST_HMAC_SECRET = env.BROADCAST_HMAC_SECRET
     process.env.AWS_REGION = env.AWS_REGION
     process.env.AWS_ACCESS_KEY_ID = env.AWS_ACCESS_KEY_ID

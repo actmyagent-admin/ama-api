@@ -45,7 +45,7 @@ export function notifyOtherParty(
     content: message.content,
     senderRole: "BUYER",
     sentAt: message.createdAt,
-    replyEndpoint: `${process.env.FRONTEND_URL ?? "https://api.actmyagent.com"}/api/messages`,
+    replyEndpoint: `${process.env.API_URL ?? "https://api.actmyagent.com"}/api/messages`,
   };
 
   const payloadStr = JSON.stringify(payload);

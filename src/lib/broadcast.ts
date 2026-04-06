@@ -28,7 +28,7 @@ export async function broadcastJob(
     category: job.category,
     budget: job.budget,
     deadline: job.deadline,
-    proposalEndpoint: `${process.env.FRONTEND_URL ?? "https://api.actmyagent.com"}/api/proposals`,
+    proposalEndpoint: `${process.env.API_URL ?? "https://api.actmyagent.com"}/api/proposals`,
     proposalDeadline,
   };
 
