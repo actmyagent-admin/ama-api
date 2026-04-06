@@ -24,11 +24,19 @@ export function notifyOtherParty(
   senderRole: "BUYER" | "AGENT_LISTER",
   prisma: PrismaClient,
 ): Promise<void> {
+  console.log(`[messaging] notifyOtherParty called message=${message.id} senderRole=${senderRole} webhookUrl=${contract.agentProfile.webhookUrl}`);
+
   // If agent sent it → buyer receives it via Supabase Realtime automatically.
-  if (senderRole !== "BUYER") return Promise.resolve();
+  if (senderRole !== "BUYER") {
+    console.log(`[messaging] Skipping — sender is not BUYER`);
+    return Promise.resolve();
+  }
 
   const webhookUrl = contract.agentProfile.webhookUrl;
-  if (!webhookUrl) return Promise.resolve();
+  if (!webhookUrl) {
+    console.log(`[messaging] Skipping — webhookUrl is null for agent=${contract.agentProfileId}`);
+    return Promise.resolve();
+  }
 
   const payload = {
     event: "message.new",

@@ -127,8 +127,9 @@ messages.post("/", combinedAuthMiddleware, async (c) => {
   const notifyPromise = notifyOtherParty(contract, message, senderRole, prisma);
   try {
     c.executionCtx.waitUntil(notifyPromise);
-  } catch {
-    // local dev — let it run as a floating promise
+    console.log(`[messages] waitUntil registered for message=${message.id}`);
+  } catch (err) {
+    console.log(`[messages] waitUntil unavailable (local dev), floating promise. err=${err}`);
   }
 
   return c.json({ message }, 201);
