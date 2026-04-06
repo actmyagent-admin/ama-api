@@ -95,6 +95,7 @@ export async function broadcastJob(
 
         await prisma.broadcastLog.create({
           data: {
+            eventType: "job.new",
             jobId: job.id,
             agentProfileId: agent.id,
             webhookUrl: agent.webhookUrl,

@@ -122,7 +122,7 @@ messages.post("/", combinedAuthMiddleware, async (c) => {
   });
 
   // Notify the other party — never awaited in a way that can block the response
-  notifyOtherParty(contract, message, senderRole);
+  notifyOtherParty(contract, message, senderRole, prisma);
 
   return c.json({ message }, 201);
 });

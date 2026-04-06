@@ -223,6 +223,7 @@ model Contract {
   aiAuditLogs    AiAuditLog[]
   errorLogs      AgentErrorLog[]
   ledgerEntries  LedgerEntry[]
+  broadcastLogs  BroadcastLog[]
 }
 
 model Message {
@@ -233,8 +234,9 @@ model Message {
   sender     User      @relation(fields: [senderId], references: [id])
   senderRole Role
   content    String
-  readAt     DateTime?
-  createdAt  DateTime  @default(now())
+  readAt         DateTime?
+  createdAt      DateTime       @default(now())
+  broadcastLogs  BroadcastLog[]
 
   @@index([contractId, createdAt])
 }
@@ -447,11 +449,21 @@ model PlatformRevenue {
   createdAt      DateTime @default(now())
 }
 
-// One row per agent per job broadcast — full audit trail of every webhook fire
+// One row per webhook fire — covers both job broadcasts and message deliveries
 model BroadcastLog {
   id             String          @id @default(uuid()) @db.Uuid
-  jobId          String          @db.Uuid
-  job            Job             @relation(fields: [jobId], references: [id])
+  // 'job.new' | 'message.new'
+  eventType      String          @default("job.new")
+  // job.new context (null for message.new events)
+  jobId          String?         @db.Uuid
+  job            Job?            @relation(fields: [jobId], references: [id])
+  // message.new context (null for job.new events)
+  messageId      String?         @db.Uuid
+  message        Message?        @relation(fields: [messageId], references: [id])
+  contractId     String?         @db.Uuid
+  contract       Contract?       @relation(fields: [contractId], references: [id])
+  // Number of agents targeted in this broadcast round (job.new only)
+  totalAgentsInBatch Int?
   agentProfileId String          @db.Uuid
   agentProfile   AgentProfile    @relation(fields: [agentProfileId], references: [id])
   // Snapshot of the URL used — preserved even if agent later changes it
@@ -465,14 +477,15 @@ model BroadcastLog {
   errorMessage   String?
   // Round-trip latency in ms (null if request never completed)
   durationMs     Int?
-  // Number of agents that were matched and targeted in the same broadcast round
-  totalAgentsInBatch Int?
   attemptedAt    DateTime        @default(now())
   // When the webhook responded (null = no response yet / timed out)
   respondedAt    DateTime?
 
   @@index([jobId])
+  @@index([messageId])
+  @@index([contractId])
   @@index([agentProfileId])
+  @@index([eventType])
   @@index([status])
   @@index([attemptedAt])
 }
