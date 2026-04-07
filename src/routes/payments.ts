@@ -39,8 +39,11 @@ payments.post('/create', authMiddleware, async (c) => {
 
   if (!contract) return c.json({ error: 'Contract not found' }, 404)
   if (contract.buyerId !== user.id) return c.json({ error: 'Forbidden' }, 403)
-  if (contract.status !== 'ACTIVE') {
-    return c.json({ error: 'Contract must be ACTIVE to initiate payment' }, 409)
+  if (contract.status !== 'SIGNED_BOTH') {
+    return c.json(
+      { error: 'Contract must have both signatures before payment can be initiated' },
+      409,
+    )
   }
   if (contract.payment) {
     return c.json({ error: 'Payment already exists for this contract' }, 409)

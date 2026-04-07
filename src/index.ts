@@ -5,6 +5,10 @@ import { logger } from 'hono/logger'
 import type { ExecutionContext } from '@cloudflare/workers-types'
 import { createPrisma } from './lib/prisma.js'
 import { releaseEscrow } from './lib/escrow.js'
+import {
+  notifyBuyerContractVoided,
+  notifyAgentContractVoided,
+} from './lib/notifications.js'
 import type { Variables } from './types/index.js'
 
 import usersRouter from './routes/users.js'
@@ -110,6 +114,55 @@ app.onError((err, c) => {
   return c.json({ error: 'Internal server error' }, 500)
 })
 
+// ─── Scheduled handler — voids contracts where buyer missed the 24-hour payment window ───
+async function runPaymentTimeouts(env: Bindings): Promise<void> {
+  const connectionString = env.HYPERDRIVE?.connectionString ?? env.DATABASE_URL
+  const prisma = createPrisma(connectionString)
+
+  try {
+    const expired = await prisma.contract.findMany({
+      where: {
+        status: 'SIGNED_BOTH',
+        paymentDeadline: { lte: new Date() },
+      },
+      include: {
+        agentProfile: { include: { user: true } },
+        buyer: true,
+      },
+    })
+
+    console.log(`[cron] Payment timeout check: ${expired.length} expired contracts found`)
+
+    for (const contract of expired) {
+      try {
+        await prisma.contract.update({
+          where: { id: contract.id },
+          data: {
+            status: 'VOIDED',
+            voidedAt: new Date(),
+            voidReason: 'payment_timeout',
+          },
+        })
+
+        // Reopen the job so other agents can bid again
+        await prisma.job.update({
+          where: { id: contract.jobId },
+          data: { status: 'OPEN' },
+        })
+
+        await notifyBuyerContractVoided(contract as any)
+        await notifyAgentContractVoided(contract as any)
+
+        console.log(`[cron] Contract ${contract.id} voided — payment_timeout`)
+      } catch (err) {
+        console.error(`[cron] Failed to void contract ${contract.id}:`, err)
+      }
+    }
+  } finally {
+    await prisma.$disconnect()
+  }
+}
+
 // ─── Scheduled handler — auto-approves overdue deliveries ───────────────────
 // Runs on the cron schedule defined in wrangler.toml (every hour).
 // Finds all SUBMITTED deliveries whose reviewDeadline has passed and releases escrow.
@@ -185,5 +238,6 @@ export default {
     process.env.AWS_SECRET_ACCESS_KEY = env.AWS_SECRET_ACCESS_KEY
     process.env.AWS_S3_BUCKET = env.AWS_S3_BUCKET
     ctx.waitUntil(runAutoApprovals(env))
+    ctx.waitUntil(runPaymentTimeouts(env))
   },
 }

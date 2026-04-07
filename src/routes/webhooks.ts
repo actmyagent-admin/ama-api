@@ -1,5 +1,6 @@
 import { Hono } from 'hono'
 import { stripe } from '../lib/stripe.js'
+import { activateContract } from '../lib/contractActivation.js'
 import type { Variables } from '../types/index.js'
 
 const webhooks = new Hono<{ Variables: Variables }>()
@@ -34,7 +35,13 @@ webhooks.post('/stripe', async (c) => {
           where: { stripePaymentIntentId: pi.id },
           data: { status: 'ESCROWED' },
         })
-        console.log(`[webhooks] Payment ${pi.id} escrowed. Agent can start work.`)
+        // Activate the contract — moves SIGNED_BOTH → ACTIVE and notifies agent to start work
+        if (pi.metadata.contractId) {
+          await activateContract(pi.metadata.contractId, prisma)
+        }
+        console.log(
+          `[webhooks] Payment ${pi.id} escrowed. Contract ${pi.metadata.contractId ?? 'unknown'} activated.`,
+        )
         break
       }
 

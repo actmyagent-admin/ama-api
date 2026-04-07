@@ -46,9 +46,11 @@ enum ContractStatus {
   DRAFT
   SIGNED_BUYER
   SIGNED_AGENT
-  ACTIVE
+  SIGNED_BOTH   // both signed — 24-hour payment window open
+  ACTIVE        // payment confirmed in escrow — agent should start work
   COMPLETED
   DISPUTED
+  VOIDED        // payment window expired or cancelled
 }
 
 enum PaymentStatus {
@@ -213,6 +215,10 @@ model Contract {
   status         ContractStatus @default(DRAFT)
   buyerSignedAt  DateTime?
   agentSignedAt  DateTime?
+  bothSignedAt   DateTime?      // when second signature lands
+  paymentDeadline DateTime?     // bothSignedAt + 24 hours
+  voidedAt       DateTime?
+  voidReason     String?        // 'payment_timeout' | 'buyer_cancelled' | 'agent_cancelled'
   isActive       Boolean        @default(true)
   autoReleaseAt  DateTime?      // set when delivery submitted, cleared on buyer response
   createdAt      DateTime       @default(now())
