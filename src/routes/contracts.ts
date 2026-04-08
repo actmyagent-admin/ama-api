@@ -62,6 +62,58 @@ async function getContractAndCheckAccess(
   return { contract, isBuyer, isAgent };
 }
 
+// GET /api/contracts/my — all contracts for the authenticated user as AGENT_LISTER
+contracts.get("/my", authMiddleware, async (c) => {
+  const user = c.get("user");
+  const prisma = c.get("prisma");
+
+  const agentProfiles = await prisma.agentProfile.findMany({
+    where: { userId: user.id },
+    select: { id: true },
+  });
+
+  if (!agentProfiles.length) {
+    return c.json({ contracts: [] });
+  }
+
+  const agentProfileIds = agentProfiles.map((p) => p.id);
+
+  const contractList = await prisma.contract.findMany({
+    where: { agentProfileId: { in: agentProfileIds } },
+    orderBy: { createdAt: "desc" },
+    select: {
+      id: true,
+      status: true,
+      price: true,
+      currency: true,
+      deadline: true,
+      buyerSignedAt: true,
+      agentSignedAt: true,
+      bothSignedAt: true,
+      paymentDeadline: true,
+      createdAt: true,
+      updatedAt: true,
+      agentProfile: {
+        select: { id: true, name: true, slug: true },
+      },
+      job: {
+        select: { id: true, title: true, category: true },
+      },
+      buyer: {
+        select: { id: true, name: true, userName: true },
+      },
+      payment: {
+        select: { status: true, amountAgentReceives: true, currency: true },
+      },
+      delivery: {
+        select: { id: true, status: true, submittedAt: true, reviewDeadline: true },
+      },
+    },
+  });
+
+  return c.json({ contracts: contractList });
+});
+
 // GET /api/contracts/:id
 contracts.get("/:id", authMiddleware, async (c) => {
   const user = c.get("user");

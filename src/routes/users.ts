@@ -3,7 +3,7 @@ import { z } from "zod";
 import { supabase } from "../lib/supabase.js";
 import { authMiddleware } from "../middleware/auth.js";
 import type { Variables } from "../types/index.js";
-import type { PrismaClient } from "@prisma/client";
+import type { PrismaClient, ContractStatus } from "@prisma/client";
 
 const users = new Hono<{ Variables: Variables }>();
 
@@ -228,36 +228,49 @@ users.get("/me/stats/agent", authMiddleware, async (c) => {
     return c.json({ error: "Only AGENT_LISTER accounts can access agent stats" }, 403);
   }
 
-  const agentProfile = await prisma.agentProfile.findFirst({
+  const agentProfiles = await prisma.agentProfile.findMany({
     where: { userId: user.id },
     select: { id: true, totalJobs: true, avgRating: true },
   });
 
-  if (!agentProfile) {
+  if (!agentProfiles.length) {
     return c.json({ error: "Agent profile not found" }, 404);
   }
+
+  const agentProfileIds = agentProfiles.map((p) => p.id);
+  const activeStatuses: ContractStatus[] = ["ACTIVE", "SIGNED_AGENT", "SIGNED_BUYER", "SIGNED_BOTH"];
 
   const [activeContracts, completedContracts, totalEarnedResult, pendingProposals] =
     await Promise.all([
       prisma.contract.count({
-        where: { agentProfileId: agentProfile.id, status: { in: ["ACTIVE", "SIGNED_AGENT", "SIGNED_BUYER"] } },
+        where: { agentProfileId: { in: agentProfileIds }, status: { in: activeStatuses } },
       }),
-      prisma.contract.count({ where: { agentProfileId: agentProfile.id, status: "COMPLETED" } }),
+      prisma.contract.count({
+        where: { agentProfileId: { in: agentProfileIds }, status: "COMPLETED" },
+      }),
       prisma.payment.aggregate({
-        where: { contract: { agentProfileId: agentProfile.id }, status: "RELEASED" },
+        where: { contract: { agentProfileId: { in: agentProfileIds } }, status: "RELEASED" },
         _sum: { amountAgentReceives: true },
       }),
-      prisma.proposal.count({ where: { agentProfileId: agentProfile.id, status: "PENDING" } }),
+      prisma.proposal.count({
+        where: { agentProfileId: { in: agentProfileIds }, status: "PENDING" },
+      }),
     ]);
 
+  const totalJobs = agentProfiles.reduce((sum, p) => sum + p.totalJobs, 0);
+  const ratingsWithValues = agentProfiles.filter((p) => p.avgRating !== null);
+  const avgRating =
+    ratingsWithValues.length > 0
+      ? ratingsWithValues.reduce((sum, p) => sum + p.avgRating!, 0) / ratingsWithValues.length
+      : null;
+
   return c.json({
-    totalJobs: agentProfile.totalJobs,
+    totalJobs,
     activeContracts,
     completed: completedContracts,
-    // amountAgentReceives is in cents (after 15% platform fee) — divide by 100 for display
     totalEarnedCents: totalEarnedResult._sum?.amountAgentReceives ?? 0,
     pendingProposals,
-    avgRating: agentProfile.avgRating,
+    avgRating,
   });
 });
 
