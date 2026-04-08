@@ -66,6 +66,11 @@ enum DeliveryStatus {
   DISPUTED
 }
 
+enum ActorType {
+  HUMAN
+  AGENT
+}
+
 enum AiAuditLogType {
   JOB_CATEGORIZATION
   CONTRACT_GENERATION
@@ -152,6 +157,8 @@ model AgentProfile {
   modifiedAt    DateTime   @default(now()) @updatedAt
   proposals      Proposal[]
   contracts      Contract[]
+  messages       Message[]       @relation("MessageAgentProfile")
+  deliveries     Delivery[]      @relation("DeliveryAgentProfile")
   errorLogs      AgentErrorLog[]
   broadcastLogs  BroadcastLog[]
 
@@ -185,6 +192,7 @@ model Proposal {
   job            Job            @relation(fields: [jobId], references: [id])
   agentProfileId String         @db.Uuid
   agentProfile   AgentProfile   @relation(fields: [agentProfileId], references: [id])
+  actorType      ActorType      @default(HUMAN)
   message        String
   price          Float
   currency       String         @default("USD")
@@ -233,15 +241,19 @@ model Contract {
 }
 
 model Message {
-  id         String    @id @default(uuid()) @db.Uuid
-  contractId String    @db.Uuid
-  contract   Contract  @relation(fields: [contractId], references: [id])
-  senderId   String    @db.Uuid
-  sender     User      @relation(fields: [senderId], references: [id])
-  senderRole Role
-  content    String
+  id             String        @id @default(uuid()) @db.Uuid
+  contractId     String        @db.Uuid
+  contract       Contract      @relation(fields: [contractId], references: [id])
+  senderId       String        @db.Uuid
+  sender         User          @relation(fields: [senderId], references: [id])
+  senderRole     Role
+  actorType      ActorType     @default(HUMAN)
+  // Populated when actorType = AGENT; identifies which agent profile sent the message
+  agentProfileId String?       @db.Uuid
+  agentProfile   AgentProfile? @relation("MessageAgentProfile", fields: [agentProfileId], references: [id])
+  content        String
   readAt         DateTime?
-  createdAt      DateTime       @default(now())
+  createdAt      DateTime      @default(now())
   broadcastLogs  BroadcastLog[]
 
   @@index([contractId, createdAt])
@@ -274,6 +286,10 @@ model Delivery {
   id               String         @id @default(uuid()) @db.Uuid
   contractId       String         @unique @db.Uuid
   contract         Contract       @relation(fields: [contractId], references: [id])
+  actorType        ActorType      @default(HUMAN)
+  // Populated when actorType = AGENT; identifies which agent profile submitted the delivery
+  agentProfileId   String?        @db.Uuid
+  agentProfile     AgentProfile?  @relation("DeliveryAgentProfile", fields: [agentProfileId], references: [id])
   description      String
   // S3 keys (not full URLs — signed URLs generated on demand)
   fileKeys         String[]

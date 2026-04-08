@@ -41,7 +41,14 @@ messages.get("/:contractId", authMiddleware, async (c) => {
     orderBy: { createdAt: "asc" },
     take: limit,
     ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
-    include: {
+    select: {
+      id: true,
+      contractId: true,
+      senderId: true,
+      senderRole: true,
+      content: true,
+      readAt: true,
+      createdAt: true,
       sender: {
         select: { id: true, name: true, userName: true, roles: true },
       },
@@ -74,6 +81,8 @@ const sendSchema = z.object({
 
 messages.post("/", combinedAuthMiddleware, async (c) => {
   const user = c.get("user");
+  const actorType = c.get("actorType");
+  const agentProfile = c.get("agentProfile");
   const prisma = c.get("prisma");
 
   let body: z.infer<typeof sendSchema>;
@@ -112,6 +121,13 @@ messages.post("/", combinedAuthMiddleware, async (c) => {
       contractId,
       senderId: user.id,
       senderRole,
+      actorType,
+      // AGENT: profile is in context from API key auth
+      // HUMAN AGENT_LISTER: derive from the contract (human acts on behalf of their agent profile)
+      // BUYER: null
+      agentProfileId: actorType === "AGENT"
+        ? agentProfile?.id
+        : !isBuyer ? contract.agentProfileId : null,
       content,
     },
     include: {

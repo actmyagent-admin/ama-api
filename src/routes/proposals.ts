@@ -1,7 +1,7 @@
 import { Hono } from "hono";
 import { z } from "zod";
 import { authMiddleware } from "../middleware/auth.js";
-import { apiKeyMiddleware } from "../middleware/apiKey.js";
+import { combinedAuthMiddleware } from "../middleware/combinedAuth.js";
 import { generateContract } from "../lib/anthropic.js";
 import type { AiAuditMeta } from "../lib/anthropic.js";
 import type { Variables } from "../types/index.js";
@@ -19,15 +19,10 @@ const createProposalSchema = z.object({
 // POST /api/proposals — accepts JWT or API key auth
 proposals.post(
   "/",
-  async (c, next) => {
-    const hasApiKey = c.req.header("x-api-key");
-    if (hasApiKey) {
-      return apiKeyMiddleware(c, next);
-    }
-    return authMiddleware(c, next);
-  },
+  combinedAuthMiddleware,
   async (c) => {
     const user = c.get("user");
+    const actorType = c.get("actorType");
     const prisma = c.get("prisma");
 
     if (!user.roles.includes("AGENT_LISTER")) {
@@ -49,9 +44,12 @@ proposals.post(
     if (job.status !== "OPEN")
       return c.json({ error: "Job is not open for proposals" }, 409);
 
-    const agentProfile = await prisma.agentProfile.findFirst({
-      where: { userId: user.id },
-    });
+    // For AGENT auth the profile is already in context; for HUMAN look it up by userId
+    const agentProfile =
+      actorType === "AGENT"
+        ? c.get("agentProfile")
+        : await prisma.agentProfile.findFirst({ where: { userId: user.id } });
+
     if (!agentProfile) return c.json({ error: "Agent profile not found" }, 404);
 
     const existing = await prisma.proposal.findFirst({
@@ -67,6 +65,7 @@ proposals.post(
       data: {
         jobId: body.jobId,
         agentProfileId: agentProfile.id,
+        actorType,
         message: body.message,
         price: body.price,
         currency: body.currency,
@@ -82,6 +81,69 @@ proposals.post(
   },
 );
 
+// GET /api/proposals/agent/:agentProfileId
+// Returns all proposals sent from a specific agent profile.
+// Only the owner of that agent profile can access this.
+proposals.get("/agent/:agentProfileId", authMiddleware, async (c) => {
+  const user = c.get("user");
+  const prisma = c.get("prisma");
+  const agentProfileId = c.req.param("agentProfileId");
+
+  const agentProfile = await prisma.agentProfile.findUnique({
+    where: { id: agentProfileId },
+  });
+
+  if (!agentProfile) return c.json({ error: "Agent profile not found" }, 404);
+  if (agentProfile.userId !== user.id) return c.json({ error: "Forbidden" }, 403);
+
+  const proposals = await prisma.proposal.findMany({
+    where: { agentProfileId },
+    select: {
+      id: true,
+      jobId: true,
+      agentProfileId: true,
+      message: true,
+      price: true,
+      currency: true,
+      estimatedDays: true,
+      status: true,
+      isActive: true,
+      createdAt: true,
+      job: {
+        select: {
+          id: true,
+          title: true,
+          description: true,
+          category: true,
+          budget: true,
+          currency: true,
+          status: true,
+          deadline: true,
+        },
+      },
+      contract: {
+        select: {
+          id: true,
+          status: true,
+          scope: true,
+          deliverables: true,
+          price: true,
+          currency: true,
+          deadline: true,
+          buyerSignedAt: true,
+          agentSignedAt: true,
+          bothSignedAt: true,
+          paymentDeadline: true,
+          createdAt: true,
+        },
+      },
+    },
+    orderBy: { createdAt: "desc" },
+  });
+
+  return c.json({ proposals });
+});
+
 // GET /api/proposals/job/:jobId
 proposals.get("/job/:jobId", authMiddleware, async (c) => {
   const user = c.get("user");
@@ -96,13 +158,25 @@ proposals.get("/job/:jobId", authMiddleware, async (c) => {
   if (!job) return c.json({ error: "Job not found" }, 404);
   if (job.buyerId !== user.id) return c.json({ error: "Forbidden" }, 403);
 
-  const proposalList = await prisma.proposal.findMany({
+  const proposals = await prisma.proposal.findMany({
     where: { jobId },
-    include: { agentProfile: true },
+    select: {
+      id: true,
+      jobId: true,
+      agentProfileId: true,
+      message: true,
+      price: true,
+      currency: true,
+      estimatedDays: true,
+      status: true,
+      isActive: true,
+      createdAt: true,
+      agentProfile: true,
+    },
     orderBy: { createdAt: "desc" },
   });
 
-  return c.json({ proposals: proposalList });
+  return c.json({ proposals });
 });
 
 // POST /api/proposals/:id/accept

@@ -18,9 +18,39 @@ async function getContractAndCheckAccess(
   const contract = await prisma.contract.findUnique({
     where: { id: contractId },
     include: {
-      messages: { orderBy: { createdAt: "asc" } },
+      messages: {
+        orderBy: { createdAt: "asc" },
+        select: {
+          id: true,
+          contractId: true,
+          senderId: true,
+          senderRole: true,
+          content: true,
+          readAt: true,
+          createdAt: true,
+          sender: {
+            select: { id: true, name: true, userName: true, roles: true },
+          },
+        },
+      },
       payment: true,
-      delivery: true,
+      delivery: {
+        select: {
+          id: true,
+          contractId: true,
+          description: true,
+          fileKeys: true,
+          fileNames: true,
+          fileSizes: true,
+          status: true,
+          submittedAt: true,
+          reviewDeadline: true,
+          approvedAt: true,
+          disputedAt: true,
+          disputeReason: true,
+          autoApproveJobId: true,
+        },
+      },
       agentProfile: { include: { user: true } },
     },
   });

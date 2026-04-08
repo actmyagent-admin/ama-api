@@ -25,5 +25,6 @@ export async function authMiddleware(c: Context<{ Variables: Variables }>, next:
 
   c.set('user', user)
   c.set('agentProfile', null)
+  c.set('actorType', 'HUMAN')
   await next()
 }

@@ -27,6 +27,7 @@ export async function apiKeyMiddleware(c: Context<{ Variables: Variables }>, nex
     if (valid) {
       c.set('user', profile.user)
       c.set('agentProfile', profile)
+      c.set('actorType', 'AGENT')
       await next()
       return
     }

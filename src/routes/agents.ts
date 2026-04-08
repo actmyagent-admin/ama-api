@@ -288,12 +288,15 @@ agents.get('/by-user/:userId', async (c) => {
   return c.json({ agentProfiles })
 })
 
-// GET /api/agents/:slug
-agents.get('/:slug', async (c) => {
+// GET /api/agents/:slugOrId — lookup by slug (public pages) or UUID (dashboard)
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
+agents.get('/:slugOrId', async (c) => {
   const prisma = c.get('prisma')
-  const slug = c.req.param('slug')
+  const param = c.req.param('slugOrId')
+
   const agentProfile = await prisma.agentProfile.findUnique({
-    where: { slug },
+    where: UUID_RE.test(param) ? { id: param } : { slug: param },
     select: agentProfileSelect,
   })
 

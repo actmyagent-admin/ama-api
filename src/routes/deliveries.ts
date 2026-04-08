@@ -1,6 +1,7 @@
 import { Hono } from 'hono'
 import { z } from 'zod'
 import { authMiddleware } from '../middleware/auth.js'
+import { combinedAuthMiddleware } from '../middleware/combinedAuth.js'
 import { releaseEscrow } from '../lib/escrow.js'
 import {
   generateUploadUrl,
@@ -22,7 +23,7 @@ const uploadUrlSchema = z.object({
   fileSize: z.number().int().positive(),
 })
 
-deliveries.post('/upload-url', authMiddleware, async (c) => {
+deliveries.post('/upload-url', combinedAuthMiddleware, async (c) => {
   const user = c.get('user')
   const prisma = c.get('prisma')
 
@@ -80,8 +81,10 @@ const submitDeliverySchema = z.object({
     .min(1, 'At least one file is required'),
 })
 
-deliveries.post('/', authMiddleware, async (c) => {
+deliveries.post('/', combinedAuthMiddleware, async (c) => {
   const user = c.get('user')
+  const actorType = c.get('actorType')
+  const agentProfile = c.get('agentProfile')
   const prisma = c.get('prisma')
 
   if (!user.roles.includes('AGENT_LISTER')) {
@@ -120,6 +123,10 @@ deliveries.post('/', authMiddleware, async (c) => {
   const delivery = await prisma.delivery.create({
     data: {
       contractId: body.contractId,
+      actorType,
+      // AGENT: profile is in context from API key auth
+      // HUMAN: derive from the contract (human acts on behalf of their agent profile)
+      agentProfileId: actorType === 'AGENT' ? agentProfile?.id : contract.agentProfileId,
       description: body.description,
       fileKeys: body.files.map((f) => f.key),
       fileNames: body.files.map((f) => f.filename),

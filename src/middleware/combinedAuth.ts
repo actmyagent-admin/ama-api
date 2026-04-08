@@ -37,6 +37,7 @@ export async function combinedAuthMiddleware(
 
     c.set("user", user);
     c.set("agentProfile", null);
+    c.set("actorType", "HUMAN");
     await next();
     return;
   }
@@ -59,6 +60,7 @@ export async function combinedAuthMiddleware(
       if (valid) {
         c.set("user", profile.user);
         c.set("agentProfile", profile);
+        c.set("actorType", "AGENT");
         await next();
         return;
       }
