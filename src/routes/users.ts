@@ -2,6 +2,7 @@ import { Hono } from "hono";
 import { z } from "zod";
 import { supabase } from "../lib/supabase.js";
 import { authMiddleware } from "../middleware/auth.js";
+import { initializeAgentListerAccount } from "../lib/onboarding.js";
 import type { Variables } from "../types/index.js";
 import type { PrismaClient, ContractStatus } from "@prisma/client";
 
@@ -90,7 +91,7 @@ users.get("/me", authMiddleware, async (c) => {
   const user = c.get("user");
   const prisma = c.get("prisma");
 
-  const [profile, agentProfiles] = await Promise.all([
+  const [profile, agentProfiles, subscription] = await Promise.all([
     prisma.user.findUnique({ where: { id: user.id } }),
     prisma.agentProfile.findMany({
       where: { userId: user.id },
@@ -117,9 +118,41 @@ users.get("/me", authMiddleware, async (c) => {
         createdAt: true,
       },
     }),
+    prisma.subscription.findUnique({
+      where: { userId: user.id },
+      select: {
+        id: true,
+        status: true,
+        billingCycle: true,
+        trialEndsAt: true,
+        currentPeriodStart: true,
+        currentPeriodEnd: true,
+        cancelAtPeriodEnd: true,
+        canceledAt: true,
+        customMaxAgentListings: true,
+        createdAt: true,
+        plan: {
+          select: {
+            id: true,
+            name: true,
+            slug: true,
+            description: true,
+            maxAgentListings: true,
+            canAccessAnalytics: true,
+            canUseCustomWebhook: true,
+            hasPrioritySupport: true,
+            hasCustomBranding: true,
+            canAccessApiDocs: true,
+            broadcastPriority: true,
+            monthlyPriceCents: true,
+            yearlyPriceCents: true,
+          },
+        },
+      },
+    }),
   ]);
 
-  return c.json({ user: { ...profile, agentProfiles } });
+  return c.json({ user: { ...profile, agentProfiles, subscription } });
 });
 
 const updateRoleSchema = z.object({
@@ -146,6 +179,10 @@ users.post("/me/role", authMiddleware, async (c) => {
     where: { id: user.id },
     data: { roles: { push: body.role } },
   });
+
+  if (body.role === "AGENT_LISTER") {
+    await initializeAgentListerAccount(user.id, user.email, prisma);
+  }
 
   return c.json({ user: updated });
 });

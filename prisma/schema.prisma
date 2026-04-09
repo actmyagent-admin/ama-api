@@ -129,6 +129,8 @@ model User {
   stripeConnectAccount StripeConnectAccount?
   ledgerEntries        LedgerEntry[]
   payouts              Payout[]
+  subscription         Subscription?
+  subscriptionEvents   SubscriptionEvent[]
 }
 
 model AgentProfile {
@@ -151,6 +153,7 @@ model AgentProfile {
   apiKeyPrefix  String?
   isVerified    Boolean    @default(false)
   isActive      Boolean    @default(true)
+  isDeleted     Boolean    @default(false)
   avgRating     Float?
   totalJobs     Int        @default(0)
   createdAt     DateTime   @default(now())
@@ -469,6 +472,99 @@ model PlatformRevenue {
   refundedJobs   Int      @default(0)
   currency       String   @default("usd")
   createdAt      DateTime @default(now())
+}
+
+// Subscription plan catalog — source of truth for plan limits and feature flags
+model Plan {
+  id                    String   @id @default(uuid()) @db.Uuid
+  name                  String
+  slug                  String   @unique
+  description           String?
+
+  stripePriceIdMonthly  String?
+  stripePriceIdYearly   String?
+  stripeProductId       String?
+
+  maxAgentListings      Int      // -1 = unlimited
+  canAccessAnalytics    Boolean  @default(false)
+  canUseCustomWebhook   Boolean  @default(true)
+  hasPrioritySupport    Boolean  @default(false)
+  hasCustomBranding     Boolean  @default(false)
+  canAccessApiDocs      Boolean  @default(true)
+  broadcastPriority     Int      @default(0)
+
+  monthlyPriceCents     Int?
+  yearlyPriceCents      Int?
+
+  isActive              Boolean  @default(true)
+  isPublic              Boolean  @default(true)
+  sortOrder             Int      @default(0)
+
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+
+  subscriptions         Subscription[]
+  subscriptionEventsFrom SubscriptionEvent[] @relation("fromPlan")
+  subscriptionEventsTo   SubscriptionEvent[] @relation("toPlan")
+}
+
+// One subscription per AGENT_LISTER user — synced from Stripe
+model Subscription {
+  id                     String    @id @default(uuid()) @db.Uuid
+  userId                 String    @unique @db.Uuid
+  user                   User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  planId                 String    @db.Uuid
+  plan                   Plan      @relation(fields: [planId], references: [id])
+
+  stripeSubscriptionId   String?   @unique
+  stripeCustomerId       String    @unique
+  stripePriceId          String?
+
+  billingCycle           String    @default("monthly") // 'monthly' | 'yearly' | 'custom'
+  status                 String    @default("active")  // 'trialing' | 'active' | 'past_due' | 'canceled' | 'unpaid' | 'paused'
+
+  trialEndsAt            DateTime?
+  currentPeriodStart     DateTime?
+  currentPeriodEnd       DateTime?
+
+  cancelAtPeriodEnd      Boolean   @default(false)
+  canceledAt             DateTime?
+
+  customMaxAgentListings Int?      // overrides plan.maxAgentListings for custom deals
+
+  createdAt              DateTime  @default(now())
+  updatedAt              DateTime  @updatedAt
+
+  events                 SubscriptionEvent[]
+
+  @@index([status])
+  @@index([stripeCustomerId])
+}
+
+// Immutable audit trail of every subscription state change
+model SubscriptionEvent {
+  id             String        @id @default(uuid()) @db.Uuid
+  subscriptionId String        @db.Uuid
+  subscription   Subscription  @relation(fields: [subscriptionId], references: [id])
+  userId         String        @db.Uuid
+  user           User          @relation(fields: [userId], references: [id])
+
+  eventType      String
+  // 'created' | 'upgraded' | 'downgraded' | 'renewed' | 'payment_failed'
+  // 'canceled' | 'reactivated' | 'trial_started' | 'trial_ended' | 'paused'
+
+  fromPlanId     String?       @db.Uuid
+  fromPlan       Plan?         @relation("fromPlan", fields: [fromPlanId], references: [id])
+  toPlanId       String?       @db.Uuid
+  toPlan         Plan?         @relation("toPlan", fields: [toPlanId], references: [id])
+
+  stripeEventId  String?       @unique
+  metadata       Json?
+
+  createdAt      DateTime      @default(now())
+
+  @@index([subscriptionId])
+  @@index([userId])
 }
 
 // One row per webhook fire — covers both job broadcasts and message deliveries

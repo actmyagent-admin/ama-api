@@ -1,9 +1,22 @@
 import { Hono } from 'hono'
+import Stripe from 'stripe'
 import { stripe } from '../lib/stripe.js'
 import { activateContract } from '../lib/contractActivation.js'
 import type { Variables } from '../types/index.js'
 
 const webhooks = new Hono<{ Variables: Variables }>()
+
+async function getUserIdByStripeCustomerId(
+  customerId: string,
+  prisma: import('@prisma/client').PrismaClient,
+): Promise<string> {
+  const sub = await prisma.subscription.findUnique({
+    where: { stripeCustomerId: customerId },
+    select: { userId: true },
+  })
+  if (!sub) throw new Error(`No subscription found for Stripe customer ${customerId}`)
+  return sub.userId
+}
 
 // POST /api/webhooks/stripe
 // Must receive raw body for signature verification — no body parsing middleware
@@ -159,6 +172,151 @@ webhooks.post('/stripe', async (c) => {
           },
         })
         console.log(`[webhooks] Payout ${payout.id} failed: ${payout.failure_message}`)
+        break
+      }
+
+      case 'customer.subscription.created':
+      case 'customer.subscription.updated': {
+        const sub = event.data.object as Stripe.Subscription
+        const customerId = sub.customer as string
+        const priceId = sub.items.data[0].price.id
+
+        const plan = await prisma.plan.findFirst({
+          where: {
+            OR: [
+              { stripePriceIdMonthly: priceId },
+              { stripePriceIdYearly: priceId },
+            ],
+          },
+        })
+
+        if (!plan) {
+          console.error(`[webhooks] Unknown price ID in subscription event: ${priceId}`)
+          break
+        }
+
+        const existingSub = await prisma.subscription.findUnique({
+          where: { stripeCustomerId: customerId },
+        })
+
+        const subscription = await prisma.subscription.upsert({
+          where: { stripeCustomerId: customerId },
+          update: {
+            planId: plan.id,
+            stripeSubscriptionId: sub.id,
+            stripePriceId: priceId,
+            status: sub.status,
+            billingCycle: priceId === plan.stripePriceIdYearly ? 'yearly' : 'monthly',
+            currentPeriodStart: new Date(sub.current_period_start * 1000),
+            currentPeriodEnd: new Date(sub.current_period_end * 1000),
+            trialEndsAt: sub.trial_end ? new Date(sub.trial_end * 1000) : null,
+            cancelAtPeriodEnd: sub.cancel_at_period_end,
+            updatedAt: new Date(),
+          },
+          create: {
+            userId: await getUserIdByStripeCustomerId(customerId, prisma),
+            planId: plan.id,
+            stripeSubscriptionId: sub.id,
+            stripeCustomerId: customerId,
+            stripePriceId: priceId,
+            status: sub.status,
+            billingCycle: priceId === plan.stripePriceIdYearly ? 'yearly' : 'monthly',
+            currentPeriodStart: new Date(sub.current_period_start * 1000),
+            currentPeriodEnd: new Date(sub.current_period_end * 1000),
+            trialEndsAt: sub.trial_end ? new Date(sub.trial_end * 1000) : null,
+            cancelAtPeriodEnd: sub.cancel_at_period_end,
+            updatedAt: new Date(),
+          },
+        })
+
+        const isPlanChange = existingSub && existingSub.planId !== plan.id
+        await prisma.subscriptionEvent.create({
+          data: {
+            subscriptionId: subscription.id,
+            userId: subscription.userId,
+            eventType:
+              event.type === 'customer.subscription.created'
+                ? 'created'
+                : isPlanChange
+                  ? existingSub!.planId > plan.id
+                    ? 'downgraded'
+                    : 'upgraded'
+                  : 'renewed',
+            fromPlanId: isPlanChange ? existingSub!.planId : undefined,
+            toPlanId: plan.id,
+            stripeEventId: event.id,
+            metadata: { stripeStatus: sub.status },
+          },
+        })
+
+        // Deactivate agents if subscription is in a bad state
+        if (!['active', 'trialing'].includes(sub.status)) {
+          await prisma.agentProfile.updateMany({
+            where: { userId: subscription.userId },
+            data: { isActive: false },
+          })
+          console.log(
+            `[webhooks] Subscription ${sub.id} status=${sub.status} — agents deactivated for user ${subscription.userId}`,
+          )
+        }
+
+        console.log(
+          `[webhooks] ${event.type}: customer=${customerId} plan=${plan.slug} status=${sub.status}`,
+        )
+        break
+      }
+
+      case 'customer.subscription.deleted': {
+        const sub = event.data.object as Stripe.Subscription
+
+        const subscription = await prisma.subscription.findUnique({
+          where: { stripeSubscriptionId: sub.id },
+        })
+
+        if (!subscription) {
+          console.warn(`[webhooks] subscription.deleted — no record found for sub ${sub.id}`)
+          break
+        }
+
+        await prisma.subscription.update({
+          where: { stripeSubscriptionId: sub.id },
+          data: { status: 'canceled', canceledAt: new Date(), updatedAt: new Date() },
+        })
+
+        const starterPlan = await prisma.plan.findUnique({ where: { slug: 'starter' } })
+
+        await prisma.subscriptionEvent.create({
+          data: {
+            subscriptionId: subscription.id,
+            userId: subscription.userId,
+            eventType: 'canceled',
+            fromPlanId: subscription.planId,
+            toPlanId: starterPlan?.id,
+            stripeEventId: event.id,
+            metadata: { stripeStatus: sub.status },
+          },
+        })
+
+        // Keep starter limit (3) active; deactivate any extras ordered by creation
+        const agents = await prisma.agentProfile.findMany({
+          where: { userId: subscription.userId, isDeleted: false },
+          orderBy: { createdAt: 'asc' },
+          select: { id: true },
+        })
+
+        const starterLimit = starterPlan?.maxAgentListings ?? 3
+        if (agents.length > starterLimit) {
+          const toDeactivate = agents.slice(starterLimit).map((a) => a.id)
+          await prisma.agentProfile.updateMany({
+            where: { id: { in: toDeactivate } },
+            data: { isActive: false },
+          })
+          console.log(
+            `[webhooks] Subscription canceled for user ${subscription.userId} — deactivated ${toDeactivate.length} excess agent(s)`,
+          )
+        }
+
+        console.log(`[webhooks] subscription.deleted: sub=${sub.id} user=${subscription.userId}`)
         break
       }
 

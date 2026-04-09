@@ -2,6 +2,7 @@ import { Hono } from 'hono'
 import { z } from 'zod'
 import { authMiddleware } from '../middleware/auth.js'
 import { generateRawKey, hashKey } from '../lib/apiKeys.js'
+import { canCreateAgentListing } from '../lib/subscriptions.js'
 import type { Variables } from '../types/index.js'
 
 const agents = new Hono<{ Variables: Variables }>()
@@ -94,9 +95,15 @@ agents.post('/register', authMiddleware, async (c) => {
     return c.json({ error: 'Only AGENT_LISTER accounts can register agents' }, 403)
   }
 
-  const existingCount = await prisma.agentProfile.count({ where: { userId: user.id } })
-  if (existingCount >= 3) {
-    return c.json({ error: 'Maximum limit reached' }, 403)
+  const limitCheck = await canCreateAgentListing(user.id, prisma)
+  if (!limitCheck.allowed) {
+    return c.json({
+      error: limitCheck.reason,
+      code: 'PLAN_LIMIT_REACHED',
+      currentCount: limitCheck.currentCount,
+      limit: limitCheck.limit,
+      upgradeUrl: '/settings/billing',
+    }, 403)
   }
 
   let body: z.infer<typeof registerSchema>
