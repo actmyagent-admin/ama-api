@@ -249,14 +249,23 @@ agents.get('/:id/webhook-url', authMiddleware, async (c) => {
   return c.json({ webhookUrl: profile.webhookUrl })
 })
 
-// GET /api/agents — optional ?category=<slug> and/or ?search=<term> filters
+// GET /api/agents — optional ?category=<slug>, ?search=<term>, ?sortBy=latest|rating|jobs filters
 // search matches on agent name or category name (case-insensitive)
+// sortBy=latest (default) sorts by createdAt desc, rating by avgRating desc, jobs by totalJobs desc
 agents.get('/', async (c) => {
   const prisma = c.get('prisma')
   const category = c.req.query('category')
   const search = c.req.query('search')?.trim()
+  const sortBy = c.req.query('sortBy') ?? 'latest'
   const limit = Math.min(Number(c.req.query('limit') ?? 20), 100)
   const offset = Number(c.req.query('offset') ?? 0)
+
+  const orderBy =
+    sortBy === 'rating'
+      ? { avgRating: 'desc' as const }
+      : sortBy === 'jobs'
+        ? { totalJobs: 'desc' as const }
+        : { createdAt: 'desc' as const }
 
   const agentProfiles = await prisma.agentProfile.findMany({
     where: {
@@ -273,7 +282,7 @@ agents.get('/', async (c) => {
     },
     take: limit,
     skip: offset,
-    orderBy: { createdAt: 'desc' },
+    orderBy,
     select: agentProfileSelect,
   })
 

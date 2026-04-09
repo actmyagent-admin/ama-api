@@ -158,12 +158,13 @@ model AgentProfile {
   totalJobs     Int        @default(0)
   createdAt     DateTime   @default(now())
   modifiedAt    DateTime   @default(now()) @updatedAt
-  proposals      Proposal[]
-  contracts      Contract[]
-  messages       Message[]       @relation("MessageAgentProfile")
-  deliveries     Delivery[]      @relation("DeliveryAgentProfile")
-  errorLogs      AgentErrorLog[]
-  broadcastLogs  BroadcastLog[]
+  proposals       Proposal[]
+  contracts       Contract[]
+  messages        Message[]       @relation("MessageAgentProfile")
+  deliveries      Delivery[]      @relation("DeliveryAgentProfile")
+  errorLogs       AgentErrorLog[]
+  broadcastLogs   BroadcastLog[]
+  featuredEntries FeaturedAgent[]
 
   @@index([userId])
 }
@@ -209,31 +210,33 @@ model Proposal {
 }
 
 model Contract {
-  id             String         @id @default(uuid()) @db.Uuid
-  jobId          String         @unique @db.Uuid
-  job            Job            @relation(fields: [jobId], references: [id])
-  proposalId     String         @unique @db.Uuid
-  proposal       Proposal       @relation(fields: [proposalId], references: [id])
-  buyerId        String         @db.Uuid
-  buyer          User           @relation(fields: [buyerId], references: [id])
-  agentProfileId String         @db.Uuid
-  agentProfile   AgentProfile   @relation(fields: [agentProfileId], references: [id])
-  scope          String
-  deliverables   String
-  price          Float
-  currency       String         @default("USD")
-  deadline       DateTime
-  status         ContractStatus @default(DRAFT)
-  buyerSignedAt  DateTime?
-  agentSignedAt  DateTime?
-  bothSignedAt   DateTime?      // when second signature lands
-  paymentDeadline DateTime?     // bothSignedAt + 24 hours
-  voidedAt       DateTime?
-  voidReason     String?        // 'payment_timeout' | 'buyer_cancelled' | 'agent_cancelled'
-  isActive       Boolean        @default(true)
-  autoReleaseAt  DateTime?      // set when delivery submitted, cleared on buyer response
-  createdAt      DateTime       @default(now())
-  updatedAt      DateTime       @updatedAt
+  id                   String         @id @default(uuid()) @db.Uuid
+  jobId                String         @unique @db.Uuid
+  job                  Job            @relation(fields: [jobId], references: [id])
+  proposalId           String         @unique @db.Uuid
+  proposal             Proposal       @relation(fields: [proposalId], references: [id])
+  buyerId              String         @db.Uuid
+  buyer                User           @relation(fields: [buyerId], references: [id])
+  agentProfileId       String         @db.Uuid
+  agentProfile         AgentProfile   @relation(fields: [agentProfileId], references: [id])
+  scope                String
+  deliverables         String
+  price                Float
+  currency             String         @default("USD")
+  deadline             DateTime
+  status               ContractStatus @default(DRAFT)
+  buyerSignedAt        DateTime?
+  agentSignedAt        DateTime?
+  bothSignedAt         DateTime?      // when second signature lands
+  paymentDeadline      DateTime?      // bothSignedAt + 24 hours
+  voidedAt             DateTime?
+  voidReason           String?        // 'payment_timeout' | 'buyer_cancelled' | 'agent_cancelled'
+  buyerSignature       String?        // image file link (set at sign time)
+  agentListerSignature String?        // image file link (set at sign time)
+  isActive             Boolean        @default(true)
+  autoReleaseAt        DateTime?      // set when delivery submitted, cleared on buyer response
+  createdAt            DateTime       @default(now())
+  updatedAt            DateTime       @updatedAt
   messages       Message[]
   payment        Payment?
   delivery       Delivery?
@@ -565,6 +568,20 @@ model SubscriptionEvent {
 
   @@index([subscriptionId])
   @@index([userId])
+}
+
+// Curated list of featured agents — managed by admins
+model FeaturedAgent {
+  id             String       @id @default(uuid()) @db.Uuid
+  agentProfileId String       @db.Uuid
+  agentProfile   AgentProfile @relation(fields: [agentProfileId], references: [id])
+  isActive       Boolean      @default(true)
+  showOnHomePage Boolean      @default(false)
+  order          Int          @default(0)
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  @@index([agentProfileId])
 }
 
 // One row per webhook fire — covers both job broadcasts and message deliveries

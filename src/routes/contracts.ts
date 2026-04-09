@@ -1,4 +1,5 @@
 import { Hono } from "hono";
+import { z } from "zod";
 import { authMiddleware } from "../middleware/auth.js";
 import { combinedAuthMiddleware } from "../middleware/combinedAuth.js";
 import type { Variables } from "../types/index.js";
@@ -91,6 +92,8 @@ contracts.get("/my", authMiddleware, async (c) => {
       agentSignedAt: true,
       bothSignedAt: true,
       paymentDeadline: true,
+      buyerSignature: true,
+      agentListerSignature: true,
       createdAt: true,
       updatedAt: true,
       agentProfile: {
@@ -132,12 +135,24 @@ contracts.get("/:id", authMiddleware, async (c) => {
   return c.json({ contract });
 });
 
+const signBodySchema = z.object({
+  signature: z.string().url().nullable().optional(),
+})
+
 // POST /api/contracts/:id/sign
 contracts.post("/:id/sign", authMiddleware, async (c) => {
   const user = c.get("user");
   const prisma = c.get("prisma");
   const id = c.req.param("id");
   if (!id) return c.json({ error: "Contract not found" }, 404);
+
+  let body: z.infer<typeof signBodySchema> = {}
+  try {
+    const raw = await c.req.text()
+    body = raw ? signBodySchema.parse(JSON.parse(raw)) : {}
+  } catch {
+    return c.json({ error: "Invalid request body" }, 400)
+  }
 
   const contract = await prisma.contract.findFirst({
     where: {
@@ -188,9 +203,28 @@ contracts.post("/:id/sign", authMiddleware, async (c) => {
   const updated = await prisma.contract.update({
     where: { id },
     data: {
-      ...(isBuyer ? { buyerSignedAt: now } : { agentSignedAt: now }),
+      ...(isBuyer
+        ? {
+            buyerSignedAt: now,
+            ...(body.signature !== undefined && { buyerSignature: body.signature }),
+          }
+        : {
+            agentSignedAt: now,
+            ...(body.signature !== undefined && { agentListerSignature: body.signature }),
+          }),
       status: newStatus,
       ...(bothSignedAt && { bothSignedAt, paymentDeadline }),
+    },
+    select: {
+      id: true,
+      status: true,
+      buyerSignedAt: true,
+      agentSignedAt: true,
+      bothSignedAt: true,
+      paymentDeadline: true,
+      buyerSignature: true,
+      agentListerSignature: true,
+      updatedAt: true,
     },
   });
 
