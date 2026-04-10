@@ -158,6 +158,65 @@ model AgentProfile {
   totalJobs     Int        @default(0)
   createdAt     DateTime   @default(now())
   modifiedAt    DateTime   @default(now()) @updatedAt
+
+  // ─── CATEGORISATION ───────────────────────────────────────────
+  tags                   String[]  @default([])
+  skillLevel             String    @default("professional") // 'entry' | 'professional' | 'expert'
+
+  // ─── PRICING STRUCTURE ────────────────────────────────────────
+  pricingModel           String    @default("fixed") // 'fixed' | 'hourly' | 'per_word' | 'per_minute' | 'custom'
+  basePrice              Int       @default(0)        // cents
+  expressMultiplier      Float?                       // null = express not available
+
+  // ─── DELIVERY TERMS ───────────────────────────────────────────
+  deliveryDays           Int       @default(3)
+  expressDeliveryDays    Int?
+  maxFileSizeMb          Int?      @default(100)
+  outputFormats          String[]  @default([])
+  inputRequirements      String?
+
+  // ─── REVISION TERMS ───────────────────────────────────────────
+  revisionsIncluded      Int       @default(2)
+  pricePerExtraRevision  Int?      @default(0) // cents; 0 = not offered
+  maxRevisionRounds      Int?
+  revisionWindowDays     Int       @default(7)
+  revisionsPolicy        String?
+
+  // ─── DELIVERY VARIANTS ────────────────────────────────────────
+  deliveryVariants       Int       @default(1)
+  pricePerExtraVariant   Int?      // cents; null = not offered
+  maxDeliveryVariants    Int?
+
+  // ─── SERVICE SCOPE ────────────────────────────────────────────
+  whatsIncluded          String[]  @default([])
+  whatsNotIncluded       String[]  @default([])
+  perfectFor             String[]  @default([])
+
+  // ─── OPERATIONAL TERMS ────────────────────────────────────────
+  responseTimeSlaHours   Int       @default(24)
+  maxConcurrentJobs      Int?      @default(5)  // null = unlimited
+  currentActiveJobs      Int       @default(0)
+  availabilityStatus     String    @default("available") // 'available' | 'busy' | 'vacation' | 'paused'
+  availableUntil         DateTime?
+
+  // ─── LANGUAGES ────────────────────────────────────────────────
+  languagesSupported     String[]  @default(["English"])
+
+  // ─── PORTFOLIO & PROOF ────────────────────────────────────────
+  portfolioItems         Json      @default("[]") // [{ title, description, imageUrl, externalUrl, tags }]
+  sampleOutputUrl        String?
+
+  // ─── PERFORMANCE STATS ────────────────────────────────────────
+  totalReviews           Int       @default(0)
+  completionRate         Float?    // % of accepted jobs completed
+  onTimeDeliveryRate     Float?    // % delivered on or before deadline
+  repeatClientRate       Float?    // % of clients who hired again
+  avgResponseHours       Float?    // actual avg first response time (computed)
+
+  // ─── GUARANTEE ────────────────────────────────────────────────
+  moneyBackGuarantee     Boolean   @default(false)
+  guaranteeTerms         String?
+
   proposals       Proposal[]
   contracts       Contract[]
   messages        Message[]       @relation("MessageAgentProfile")
@@ -183,6 +242,29 @@ model Job {
   isActive    Boolean    @default(true)
   createdAt   DateTime   @default(now())
   updatedAt   DateTime   @updatedAt
+
+  // ─── SCOPE CLARITY ────────────────────────────────────────────
+  briefDetail            String?
+  attachmentKeys         String[]  @default([]) // S3 keys
+  attachmentNames        String[]  @default([])
+  exampleUrls            String[]  @default([])
+
+  // ─── DELIVERY PREFERENCES ─────────────────────────────────────
+  desiredDeliveryDays    Int?
+  expressRequested       Boolean   @default(false)
+  preferredOutputFormats String[]  @default([])
+
+  // ─── PROPOSAL SETTINGS ────────────────────────────────────────
+  proposalDeadlineHours  Int       @default(4)
+  maxProposals           Int?      @default(10) // null = unlimited
+  proposalsReceived      Int       @default(0)
+  isProposalOpen         Boolean   @default(true)
+
+  // ─── BUYER PREFERENCES ────────────────────────────────────────
+  preferHuman            Boolean   @default(false)
+  budgetFlexible         Boolean   @default(false)
+  requiredLanguage       String?   @default("English")
+
   proposals      Proposal[]
   contract       Contract?
   aiAuditLogs    AiAuditLog[]
@@ -204,6 +286,27 @@ model Proposal {
   status         ProposalStatus @default(PENDING)
   isActive       Boolean        @default(true)
   createdAt      DateTime       @default(now())
+
+  // ─── CUSTOM PRICING FOR THIS JOB ─────────────────────────────
+  basePrice              Int       @default(0)    // cents
+  expressRequested       Boolean   @default(false)
+  expressDeliveryDays    Int?
+
+  // ─── CUSTOM DELIVERY TERMS FOR THIS JOB ──────────────────────
+  deliveryDays           Int       @default(3)
+  revisionsIncluded      Int       @default(2)
+  deliveryVariants       Int       @default(1)
+
+  // ─── SCOPE CLARIFICATION ──────────────────────────────────────
+  scopeNotes             String?   // becomes part of the contract
+  questionsForBuyer      String?
+  buyerAnswers           String?
+  requiresExpress        Boolean   @default(false)
+
+  // ─── PROPOSAL METADATA ────────────────────────────────────────
+  expiresAt              DateTime?
+  viewedAt               DateTime?
+
   contract       Contract?
   aiAuditLogs    AiAuditLog[]
   errorLogs      AgentErrorLog[]
@@ -237,6 +340,46 @@ model Contract {
   autoReleaseAt        DateTime?      // set when delivery submitted, cleared on buyer response
   createdAt            DateTime       @default(now())
   updatedAt            DateTime       @updatedAt
+
+  // ─── SNAPSHOT OF AGREED TERMS (frozen at contract creation — never read AgentProfile at dispute time) ──
+  agreedPrice              Int       @default(0)  // cents
+  agreedDeliveryDays       Int       @default(3)
+  agreedRevisionsIncluded  Int       @default(2)
+  agreedDeliveryVariants   Int       @default(1)
+  pricePerExtraRevision    Int?      // cents; snapshotted from proposal/profile at creation
+  pricePerExtraVariant     Int?      // cents; snapshotted from proposal/profile at creation
+  expressDelivery          Boolean   @default(false)
+
+  // ─── REVISION TRACKING ────────────────────────────────────────
+  revisionsUsed            Int       @default(0)
+  extraRevisionsBilled     Int       @default(0)
+
+  // ─── VARIANT TRACKING ─────────────────────────────────────────
+  variantsDelivered        Int       @default(0)
+
+  // ─── SCOPE AGREEMENT ──────────────────────────────────────────
+  buyerRequirements        String?   // collected from proposal.buyerAnswers + additional detail
+  agreedInputsReceived     Boolean   @default(false)
+  inputsReceivedAt         DateTime?
+
+  // ─── DEADLINE MANAGEMENT ──────────────────────────────────────
+  startedAt                DateTime? // when agent confirmed inputs and started work
+  calculatedDeadline       DateTime? // startedAt + agreedDeliveryDays
+  deadlineExtendedAt       DateTime?
+  originalDeadline         DateTime?
+
+  // ─── CANCELLATION ─────────────────────────────────────────────
+  cancelledAt              DateTime?
+  cancelledBy              String?   // 'BUYER' | 'AGENT' | 'SYSTEM'
+  cancellationReason       String?
+
+  // ─── DISPUTE DETAIL ───────────────────────────────────────────
+  disputeOpenedBy          String?   // 'BUYER' | 'AGENT'
+  disputeReason            String?
+  disputeEvidenceUrls      String[]  @default([])
+  disputeResolvedBy        String?   // 'PLATFORM' | 'MUTUAL'
+  disputeResolution        String?
+
   messages       Message[]
   payment        Payment?
   delivery       Delivery?

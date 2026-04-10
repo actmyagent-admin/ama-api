@@ -7,6 +7,64 @@ import type { Variables } from '../types/index.js'
 
 const agents = new Hono<{ Variables: Variables }>()
 
+const serviceTermsSchema = z.object({
+  // Categorisation
+  tags: z.array(z.string()).optional(),
+  skillLevel: z.enum(['entry', 'professional', 'expert']).optional(),
+
+  // Pricing structure
+  pricingModel: z.enum(['fixed', 'hourly', 'per_word', 'per_minute', 'custom']).optional(),
+  basePrice: z.number().int().nonnegative().optional(), // cents
+  expressMultiplier: z.number().positive().nullable().optional(),
+
+  // Delivery terms
+  deliveryDays: z.number().int().positive().optional(),
+  expressDeliveryDays: z.number().int().positive().nullable().optional(),
+  maxFileSizeMb: z.number().int().positive().nullable().optional(),
+  outputFormats: z.array(z.string()).optional(),
+  inputRequirements: z.string().nullable().optional(),
+
+  // Revision terms
+  revisionsIncluded: z.number().int().nonnegative().optional(),
+  pricePerExtraRevision: z.number().int().nonnegative().nullable().optional(), // cents
+  maxRevisionRounds: z.number().int().positive().nullable().optional(),
+  revisionWindowDays: z.number().int().positive().optional(),
+  revisionsPolicy: z.string().nullable().optional(),
+
+  // Delivery variants
+  deliveryVariants: z.number().int().positive().optional(),
+  pricePerExtraVariant: z.number().int().nonnegative().nullable().optional(), // cents
+  maxDeliveryVariants: z.number().int().positive().nullable().optional(),
+
+  // Service scope
+  whatsIncluded: z.array(z.string()).optional(),
+  whatsNotIncluded: z.array(z.string()).optional(),
+  perfectFor: z.array(z.string()).optional(),
+
+  // Operational terms
+  responseTimeSlaHours: z.number().int().positive().optional(),
+  maxConcurrentJobs: z.number().int().positive().nullable().optional(),
+  availabilityStatus: z.enum(['available', 'busy', 'vacation', 'paused']).optional(),
+  availableUntil: z.string().datetime().nullable().optional(),
+
+  // Languages
+  languagesSupported: z.array(z.string()).optional(),
+
+  // Portfolio & proof
+  portfolioItems: z.array(z.object({
+    title: z.string(),
+    description: z.string().optional(),
+    imageUrl: z.string().url().optional(),
+    externalUrl: z.string().url().optional(),
+    tags: z.array(z.string()).optional(),
+  })).optional(),
+  sampleOutputUrl: z.string().url().nullable().optional(),
+
+  // Guarantee
+  moneyBackGuarantee: z.boolean().optional(),
+  guaranteeTerms: z.string().nullable().optional(),
+})
+
 const registerSchema = z.object({
   name: z.string().min(1),
   description: z.string().min(1),
@@ -16,7 +74,7 @@ const registerSchema = z.object({
   priceTo: z.number().positive(),
   currency: z.string().default('USD'),
   webhookUrl: z.string().url(),
-})
+}).merge(serviceTermsSchema)
 
 const updateAgentSchema = z.object({
   name: z.string().min(1).optional(),
@@ -27,7 +85,7 @@ const updateAgentSchema = z.object({
   mainPic: z.string().url().nullable().optional(),
   coverPic: z.string().url().nullable().optional(),
   categorySlugs: z.array(z.string()).min(1).optional(),
-})
+}).merge(serviceTermsSchema)
 
 function toSlug(name: string): string {
   return name
@@ -84,6 +142,42 @@ const agentProfileSelect = {
   totalJobs: true,
   createdAt: true,
   user: listedBySelect,
+  // Service terms
+  tags: true,
+  skillLevel: true,
+  pricingModel: true,
+  basePrice: true,
+  expressMultiplier: true,
+  deliveryDays: true,
+  expressDeliveryDays: true,
+  maxFileSizeMb: true,
+  outputFormats: true,
+  inputRequirements: true,
+  revisionsIncluded: true,
+  pricePerExtraRevision: true,
+  maxRevisionRounds: true,
+  revisionWindowDays: true,
+  revisionsPolicy: true,
+  deliveryVariants: true,
+  pricePerExtraVariant: true,
+  maxDeliveryVariants: true,
+  whatsIncluded: true,
+  whatsNotIncluded: true,
+  perfectFor: true,
+  responseTimeSlaHours: true,
+  maxConcurrentJobs: true,
+  availabilityStatus: true,
+  availableUntil: true,
+  languagesSupported: true,
+  portfolioItems: true,
+  sampleOutputUrl: true,
+  totalReviews: true,
+  completionRate: true,
+  onTimeDeliveryRate: true,
+  repeatClientRate: true,
+  avgResponseHours: true,
+  moneyBackGuarantee: true,
+  guaranteeTerms: true,
 } as const
 
 // POST /api/agents/register
@@ -134,6 +228,37 @@ agents.post('/register', authMiddleware, async (c) => {
       webhookUrl: body.webhookUrl,
       apiKeyHash: hash,
       apiKeyPrefix: prefix,
+      // Service terms (all optional at registration)
+      ...(body.tags !== undefined && { tags: body.tags }),
+      ...(body.skillLevel !== undefined && { skillLevel: body.skillLevel }),
+      ...(body.pricingModel !== undefined && { pricingModel: body.pricingModel }),
+      ...(body.basePrice !== undefined && { basePrice: body.basePrice }),
+      ...(body.expressMultiplier !== undefined && { expressMultiplier: body.expressMultiplier }),
+      ...(body.deliveryDays !== undefined && { deliveryDays: body.deliveryDays }),
+      ...(body.expressDeliveryDays !== undefined && { expressDeliveryDays: body.expressDeliveryDays }),
+      ...(body.maxFileSizeMb !== undefined && { maxFileSizeMb: body.maxFileSizeMb }),
+      ...(body.outputFormats !== undefined && { outputFormats: body.outputFormats }),
+      ...(body.inputRequirements !== undefined && { inputRequirements: body.inputRequirements }),
+      ...(body.revisionsIncluded !== undefined && { revisionsIncluded: body.revisionsIncluded }),
+      ...(body.pricePerExtraRevision !== undefined && { pricePerExtraRevision: body.pricePerExtraRevision }),
+      ...(body.maxRevisionRounds !== undefined && { maxRevisionRounds: body.maxRevisionRounds }),
+      ...(body.revisionWindowDays !== undefined && { revisionWindowDays: body.revisionWindowDays }),
+      ...(body.revisionsPolicy !== undefined && { revisionsPolicy: body.revisionsPolicy }),
+      ...(body.deliveryVariants !== undefined && { deliveryVariants: body.deliveryVariants }),
+      ...(body.pricePerExtraVariant !== undefined && { pricePerExtraVariant: body.pricePerExtraVariant }),
+      ...(body.maxDeliveryVariants !== undefined && { maxDeliveryVariants: body.maxDeliveryVariants }),
+      ...(body.whatsIncluded !== undefined && { whatsIncluded: body.whatsIncluded }),
+      ...(body.whatsNotIncluded !== undefined && { whatsNotIncluded: body.whatsNotIncluded }),
+      ...(body.perfectFor !== undefined && { perfectFor: body.perfectFor }),
+      ...(body.responseTimeSlaHours !== undefined && { responseTimeSlaHours: body.responseTimeSlaHours }),
+      ...(body.maxConcurrentJobs !== undefined && { maxConcurrentJobs: body.maxConcurrentJobs }),
+      ...(body.availabilityStatus !== undefined && { availabilityStatus: body.availabilityStatus }),
+      ...(body.availableUntil !== undefined && { availableUntil: body.availableUntil ? new Date(body.availableUntil) : null }),
+      ...(body.languagesSupported !== undefined && { languagesSupported: body.languagesSupported }),
+      ...(body.portfolioItems !== undefined && { portfolioItems: body.portfolioItems }),
+      ...(body.sampleOutputUrl !== undefined && { sampleOutputUrl: body.sampleOutputUrl }),
+      ...(body.moneyBackGuarantee !== undefined && { moneyBackGuarantee: body.moneyBackGuarantee }),
+      ...(body.guaranteeTerms !== undefined && { guaranteeTerms: body.guaranteeTerms }),
     },
     include: { categories: { select: categorySelect } },
   })
@@ -197,6 +322,37 @@ agents.patch('/:id', authMiddleware, async (c) => {
       ...(body.categorySlugs !== undefined && {
         categories: { set: body.categorySlugs.map((s) => ({ slug: s })) },
       }),
+      // Service terms
+      ...(body.tags !== undefined && { tags: body.tags }),
+      ...(body.skillLevel !== undefined && { skillLevel: body.skillLevel }),
+      ...(body.pricingModel !== undefined && { pricingModel: body.pricingModel }),
+      ...(body.basePrice !== undefined && { basePrice: body.basePrice }),
+      ...(body.expressMultiplier !== undefined && { expressMultiplier: body.expressMultiplier }),
+      ...(body.deliveryDays !== undefined && { deliveryDays: body.deliveryDays }),
+      ...(body.expressDeliveryDays !== undefined && { expressDeliveryDays: body.expressDeliveryDays }),
+      ...(body.maxFileSizeMb !== undefined && { maxFileSizeMb: body.maxFileSizeMb }),
+      ...(body.outputFormats !== undefined && { outputFormats: body.outputFormats }),
+      ...(body.inputRequirements !== undefined && { inputRequirements: body.inputRequirements }),
+      ...(body.revisionsIncluded !== undefined && { revisionsIncluded: body.revisionsIncluded }),
+      ...(body.pricePerExtraRevision !== undefined && { pricePerExtraRevision: body.pricePerExtraRevision }),
+      ...(body.maxRevisionRounds !== undefined && { maxRevisionRounds: body.maxRevisionRounds }),
+      ...(body.revisionWindowDays !== undefined && { revisionWindowDays: body.revisionWindowDays }),
+      ...(body.revisionsPolicy !== undefined && { revisionsPolicy: body.revisionsPolicy }),
+      ...(body.deliveryVariants !== undefined && { deliveryVariants: body.deliveryVariants }),
+      ...(body.pricePerExtraVariant !== undefined && { pricePerExtraVariant: body.pricePerExtraVariant }),
+      ...(body.maxDeliveryVariants !== undefined && { maxDeliveryVariants: body.maxDeliveryVariants }),
+      ...(body.whatsIncluded !== undefined && { whatsIncluded: body.whatsIncluded }),
+      ...(body.whatsNotIncluded !== undefined && { whatsNotIncluded: body.whatsNotIncluded }),
+      ...(body.perfectFor !== undefined && { perfectFor: body.perfectFor }),
+      ...(body.responseTimeSlaHours !== undefined && { responseTimeSlaHours: body.responseTimeSlaHours }),
+      ...(body.maxConcurrentJobs !== undefined && { maxConcurrentJobs: body.maxConcurrentJobs }),
+      ...(body.availabilityStatus !== undefined && { availabilityStatus: body.availabilityStatus }),
+      ...(body.availableUntil !== undefined && { availableUntil: body.availableUntil ? new Date(body.availableUntil) : null }),
+      ...(body.languagesSupported !== undefined && { languagesSupported: body.languagesSupported }),
+      ...(body.portfolioItems !== undefined && { portfolioItems: body.portfolioItems }),
+      ...(body.sampleOutputUrl !== undefined && { sampleOutputUrl: body.sampleOutputUrl }),
+      ...(body.moneyBackGuarantee !== undefined && { moneyBackGuarantee: body.moneyBackGuarantee }),
+      ...(body.guaranteeTerms !== undefined && { guaranteeTerms: body.guaranteeTerms }),
     },
     select: agentProfileSelect,
   })

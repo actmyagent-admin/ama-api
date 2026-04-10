@@ -14,6 +14,24 @@ const createProposalSchema = z.object({
   price: z.number().positive(),
   currency: z.string().default("USD"),
   estimatedDays: z.number().int().positive(),
+
+  // Custom pricing for this job
+  basePrice: z.number().int().nonnegative().optional(), // cents
+  expressRequested: z.boolean().optional(),
+  expressDeliveryDays: z.number().int().positive().nullable().optional(),
+
+  // Custom delivery terms for this job
+  deliveryDays: z.number().int().positive().optional(),
+  revisionsIncluded: z.number().int().nonnegative().optional(),
+  deliveryVariants: z.number().int().positive().optional(),
+
+  // Scope clarification
+  scopeNotes: z.string().nullable().optional(),
+  questionsForBuyer: z.string().nullable().optional(),
+  requiresExpress: z.boolean().optional(),
+
+  // Expiry
+  expiresAt: z.string().datetime().nullable().optional(),
 });
 
 // POST /api/proposals — accepts JWT or API key auth
@@ -70,6 +88,17 @@ proposals.post(
         price: body.price,
         currency: body.currency,
         estimatedDays: body.estimatedDays,
+        // Custom terms for this job
+        ...(body.basePrice !== undefined && { basePrice: body.basePrice }),
+        ...(body.expressRequested !== undefined && { expressRequested: body.expressRequested }),
+        ...(body.expressDeliveryDays !== undefined && { expressDeliveryDays: body.expressDeliveryDays }),
+        ...(body.deliveryDays !== undefined && { deliveryDays: body.deliveryDays }),
+        ...(body.revisionsIncluded !== undefined && { revisionsIncluded: body.revisionsIncluded }),
+        ...(body.deliveryVariants !== undefined && { deliveryVariants: body.deliveryVariants }),
+        ...(body.scopeNotes !== undefined && { scopeNotes: body.scopeNotes }),
+        ...(body.questionsForBuyer !== undefined && { questionsForBuyer: body.questionsForBuyer }),
+        ...(body.requiresExpress !== undefined && { requiresExpress: body.requiresExpress }),
+        ...(body.expiresAt !== undefined && { expiresAt: body.expiresAt ? new Date(body.expiresAt) : null }),
       },
     });
 
@@ -202,6 +231,28 @@ proposals.post("/:id/accept", authMiddleware, async (c) => {
   if (proposal.status !== "PENDING")
     return c.json({ error: "Proposal is not pending" }, 409);
 
+  // Fetch agent profile for pricing extras to snapshot into the contract
+  const agentProfileForSnapshot = await prisma.agentProfile.findUnique({
+    where: { id: proposal.agentProfileId },
+  });
+
+  // The TS language server may lag behind after prisma generate — cast to include new schema fields
+  // Runtime type is always correct once the migration runs; restart TS server to clear cache.
+  type ProposalWithNewFields = typeof proposal & {
+    basePrice: number;
+    deliveryDays: number;
+    revisionsIncluded: number;
+    deliveryVariants: number;
+    expressRequested: boolean;
+    buyerAnswers: string | null;
+  };
+  type AgentProfileWithNewFields = NonNullable<typeof agentProfileForSnapshot> & {
+    pricePerExtraRevision: number | null;
+    pricePerExtraVariant: number | null;
+  };
+  const p = proposal as ProposalWithNewFields;
+  const ap = agentProfileForSnapshot as AgentProfileWithNewFields | null;
+
   // Generate contract via Anthropic
   let contractContent = {
     scope: `Provide services for: ${proposal.job.title}`,
@@ -238,6 +289,17 @@ proposals.post("/:id/accept", authMiddleware, async (c) => {
         price: proposal.price,
         currency: proposal.currency,
         deadline,
+        // ── Snapshot of agreed terms (frozen at creation; never read AgentProfile at dispute time) ──
+        agreedPrice: p.basePrice || Math.round(proposal.price * 100),
+        agreedDeliveryDays: p.deliveryDays,
+        agreedRevisionsIncluded: p.revisionsIncluded,
+        agreedDeliveryVariants: p.deliveryVariants,
+        expressDelivery: p.expressRequested,
+        // Snapshot pricing extras from agentProfile at time of acceptance
+        pricePerExtraRevision: ap?.pricePerExtraRevision ?? null,
+        pricePerExtraVariant: ap?.pricePerExtraVariant ?? null,
+        // Scope: carry buyerAnswers through as the initial buyerRequirements
+        buyerRequirements: p.buyerAnswers ?? null,
       },
       include: { proposal: true, job: true },
     }),
