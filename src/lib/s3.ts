@@ -11,6 +11,11 @@ function getS3(): S3Client {
       accessKeyId: process.env.AWS_ACCESS_KEY_ID!,
       secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY!,
     },
+    // SDK v3.600+ auto-adds CRC32 checksum headers to every request.
+    // Browsers don't send those headers, causing signature mismatch → 403.
+    // WHEN_REQUIRED means checksums are only added when S3 mandates them.
+    requestChecksumCalculation: 'WHEN_REQUIRED',
+    responseChecksumValidation: 'WHEN_REQUIRED',
   })
 }
 
@@ -45,10 +50,7 @@ export async function generateUploadUrl(
     // Do NOT include ContentLength — it gets added to SignedHeaders,
     // and browsers don't always send it exactly, causing SignatureDoesNotMatch.
   })
-  return getSignedUrl(getS3(), command, {
-    expiresIn: 900,
-    unhoistableHeaders: new Set(['x-amz-checksum-crc32', 'x-amz-sdk-checksum-algorithm']),
-  })
+  return getSignedUrl(getS3(), command, { expiresIn: 900 })
 }
 
 /** Generate a presigned GET URL for secure file download. Expires in 1 hour. */
