@@ -1,19 +1,17 @@
 import { S3Client, PutObjectCommand, GetObjectCommand } from '@aws-sdk/client-s3'
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner'
 
-let _s3: S3Client | null = null
-
 function getS3(): S3Client {
-  if (!_s3) {
-    _s3 = new S3Client({
-      region: process.env.AWS_REGION!,
-      credentials: {
-        accessKeyId: process.env.AWS_ACCESS_KEY_ID!,
-        secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY!,
-      },
-    })
-  }
-  return _s3
+  // Do NOT cache — Cloudflare Workers may share module state across requests,
+  // causing a singleton initialised with undefined env vars to persist.
+  // The SDK client is lightweight; constructing it per-call is safe here.
+  return new S3Client({
+    region: process.env.AWS_REGION!,
+    credentials: {
+      accessKeyId: process.env.AWS_ACCESS_KEY_ID!,
+      secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY!,
+    },
+  })
 }
 
 export const ALLOWED_MIME_TYPES = new Set([
