@@ -37,15 +37,18 @@ export const MAX_FILE_SIZE_BYTES = 100 * 1024 * 1024 // 100 MB
 export async function generateUploadUrl(
   key: string,
   mimeType: string,
-  fileSize: number,
 ): Promise<string> {
   const command = new PutObjectCommand({
     Bucket: process.env.AWS_S3_BUCKET!,
     Key: key,
     ContentType: mimeType,
-    ContentLength: fileSize,
+    // Do NOT include ContentLength — it gets added to SignedHeaders,
+    // and browsers don't always send it exactly, causing SignatureDoesNotMatch.
   })
-  return getSignedUrl(getS3(), command, { expiresIn: 900 })
+  return getSignedUrl(getS3(), command, {
+    expiresIn: 900,
+    unhoistableHeaders: new Set(['x-amz-checksum-crc32', 'x-amz-sdk-checksum-algorithm']),
+  })
 }
 
 /** Generate a presigned GET URL for secure file download. Expires in 1 hour. */

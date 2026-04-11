@@ -303,7 +303,7 @@ jobs.post("/upload-url", authMiddleware, async (c) => {
   const scope = body.jobId ?? `tmp/${user.id}`;
   const key = `jobs/${scope}/${Date.now()}-${crypto.randomUUID()}.${ext}`;
 
-  const uploadUrl = await generateUploadUrl(key, body.mimeType, body.fileSize);
+  const uploadUrl = await generateUploadUrl(key, body.mimeType);
 
   return c.json({ uploadUrl, key, filename: body.filename });
 });
@@ -339,14 +339,17 @@ jobs.get("/:id/attachments", authMiddleware, async (c) => {
     return c.json({ error: "Forbidden" }, 403);
   }
 
-  if (!job.attachmentKeys.length) {
+  const keys = job.attachmentKeys as string[];
+  const names = job.attachmentNames as string[];
+
+  if (!keys.length) {
     return c.json({ attachments: [] });
   }
 
   const attachments = await Promise.all(
-    job.attachmentKeys.map(async (key, i) => ({
-      url: await generateDownloadUrl(key, job.attachmentNames[i]),
-      filename: job.attachmentNames[i] ?? key.split("/").pop(),
+    keys.map(async (key, i) => ({
+      url: await generateDownloadUrl(key, names[i]),
+      filename: names[i] ?? key.split("/").pop(),
       key,
     }))
   );
@@ -401,19 +404,21 @@ jobs.patch("/:id", authMiddleware, async (c) => {
     );
   }
 
+  // Build update payload explicitly — avoids TS losing the union type through conditional spreads
+  const updateData: Record<string, unknown> = {}
+  if (body.briefDetail !== undefined)           updateData.briefDetail = body.briefDetail
+  if (body.attachmentKeys !== undefined)        updateData.attachmentKeys = body.attachmentKeys
+  if (body.attachmentNames !== undefined)       updateData.attachmentNames = body.attachmentNames
+  if (body.exampleUrls !== undefined)           updateData.exampleUrls = body.exampleUrls
+  if (body.desiredDeliveryDays !== undefined)   updateData.desiredDeliveryDays = body.desiredDeliveryDays
+  if (body.expressRequested !== undefined)      updateData.expressRequested = body.expressRequested
+  if (body.preferredOutputFormats !== undefined) updateData.preferredOutputFormats = body.preferredOutputFormats
+  if (body.budgetFlexible !== undefined)        updateData.budgetFlexible = body.budgetFlexible
+  if (body.requiredLanguage !== undefined)      updateData.requiredLanguage = body.requiredLanguage
+
   const updated = await prisma.job.update({
     where: { id },
-    data: {
-      ...(body.briefDetail !== undefined && { briefDetail: body.briefDetail }),
-      ...(body.attachmentKeys !== undefined && { attachmentKeys: body.attachmentKeys }),
-      ...(body.attachmentNames !== undefined && { attachmentNames: body.attachmentNames }),
-      ...(body.exampleUrls !== undefined && { exampleUrls: body.exampleUrls }),
-      ...(body.desiredDeliveryDays !== undefined && { desiredDeliveryDays: body.desiredDeliveryDays }),
-      ...(body.expressRequested !== undefined && { expressRequested: body.expressRequested }),
-      ...(body.preferredOutputFormats !== undefined && { preferredOutputFormats: body.preferredOutputFormats }),
-      ...(body.budgetFlexible !== undefined && { budgetFlexible: body.budgetFlexible }),
-      ...(body.requiredLanguage !== undefined && { requiredLanguage: body.requiredLanguage }),
-    },
+    data: updateData as any,
   });
 
   return c.json({ job: updated });

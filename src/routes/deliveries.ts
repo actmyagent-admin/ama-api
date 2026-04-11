@@ -60,7 +60,7 @@ deliveries.post('/upload-url', combinedAuthMiddleware, async (c) => {
   const ext = body.filename.split('.').pop() ?? 'bin'
   const key = `deliveries/${body.contractId}/${Date.now()}-${crypto.randomUUID()}.${ext}`
 
-  const uploadUrl = await generateUploadUrl(key, body.mimeType, body.fileSize)
+  const uploadUrl = await generateUploadUrl(key, body.mimeType)
 
   return c.json({ uploadUrl, key })
 })
