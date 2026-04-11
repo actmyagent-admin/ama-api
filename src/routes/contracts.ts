@@ -8,6 +8,7 @@ import {
   notifyBuyerPaymentRequired,
   notifyAgentContractSigned,
 } from "../lib/notifications.js";
+import { generateDownloadUrl } from "../lib/s3.js";
 
 const contracts = new Hono<{ Variables: Variables }>();
 
@@ -19,6 +20,29 @@ async function getContractAndCheckAccess(
   const contract = await prisma.contract.findUnique({
     where: { id: contractId },
     include: {
+      job: {
+        select: {
+          id: true,
+          title: true,
+          description: true,
+          briefDetail: true,
+          category: true,
+          budget: true,
+          currency: true,
+          deadline: true,
+          status: true,
+          attachmentKeys: true,
+          attachmentNames: true,
+          exampleUrls: true,
+          desiredDeliveryDays: true,
+          expressRequested: true,
+          preferredOutputFormats: true,
+          preferHuman: true,
+          budgetFlexible: true,
+          requiredLanguage: true,
+          createdAt: true,
+        },
+      },
       messages: {
         orderBy: { createdAt: "asc" },
         select: {
@@ -60,7 +84,29 @@ async function getContractAndCheckAccess(
   const isBuyer = contract.buyerId === userId;
   const isAgent = contract.agentProfile.user.id === userId;
 
-  return { contract, isBuyer, isAgent };
+  // Resolve signed download URLs for job attachments
+  const keys = contract.job.attachmentKeys as string[];
+  const names = contract.job.attachmentNames as string[];
+  const attachments = await Promise.all(
+    keys.map(async (key, i) => ({
+      url: await generateDownloadUrl(key, names[i]),
+      filename: names[i] ?? key.split("/").pop(),
+      key,
+    }))
+  );
+
+  const contractWithAttachments = {
+    ...contract,
+    job: {
+      ...contract.job,
+      attachments,
+      // Remove raw keys from the response — clients use signed URLs only
+      attachmentKeys: undefined,
+      attachmentNames: undefined,
+    },
+  };
+
+  return { contract: contractWithAttachments, isBuyer, isAgent };
 }
 
 // GET /api/contracts/my — all contracts for the authenticated user as AGENT_LISTER

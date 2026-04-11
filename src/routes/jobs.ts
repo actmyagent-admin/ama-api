@@ -308,6 +308,127 @@ jobs.post("/upload-url", authMiddleware, async (c) => {
   return c.json({ uploadUrl, key, filename: body.filename });
 });
 
+// ─── POST /api/jobs/:id/attachments ─────────────────────────────────────────
+// Buyer adds a single already-uploaded file to a job's attachment list.
+// Max 3 attachments at any time. Owner only.
+const addAttachmentSchema = z.object({
+  key: z.string().min(1),
+  filename: z.string().min(1).max(255),
+});
+
+jobs.post("/:id/attachments", authMiddleware, async (c) => {
+  const user = c.get("user");
+  const prisma = c.get("prisma");
+  const id = c.req.param("id");
+
+  if (!user.roles.includes("BUYER")) {
+    return c.json({ error: "Only buyers can manage job attachments" }, 403);
+  }
+
+  let body: z.infer<typeof addAttachmentSchema>;
+  try {
+    body = addAttachmentSchema.parse(await c.req.json());
+  } catch (err) {
+    return c.json({ error: "Invalid request body", details: err }, 400);
+  }
+
+  const job = await prisma.job.findUnique({
+    where: { id },
+    select: { buyerId: true, attachmentKeys: true, attachmentNames: true },
+  });
+
+  if (!job) return c.json({ error: "Job not found" }, 404);
+  if (job.buyerId !== user.id) return c.json({ error: "Forbidden" }, 403);
+
+  const keys = job.attachmentKeys as string[];
+  const names = job.attachmentNames as string[];
+
+  if (keys.length >= 3) {
+    return c.json(
+      { error: "Maximum 3 attachments allowed. Remove one before adding another." },
+      409
+    );
+  }
+
+  if (keys.includes(body.key)) {
+    return c.json({ error: "This file is already attached to the job" }, 409);
+  }
+
+  const updated = await prisma.job.update({
+    where: { id },
+    data: {
+      attachmentKeys: [...keys, body.key],
+      attachmentNames: [...names, body.filename],
+    } as any,
+    select: { id: true, attachmentKeys: true, attachmentNames: true },
+  });
+
+  return c.json({
+    attachments: (updated.attachmentKeys as string[]).map((k, i) => ({
+      key: k,
+      filename: (updated.attachmentNames as string[])[i],
+    })),
+  }, 201);
+});
+
+// ─── DELETE /api/jobs/:id/attachments ────────────────────────────────────────
+// Buyer removes a single attachment from a job by its S3 key. Owner only.
+const removeAttachmentSchema = z.object({
+  key: z.string().min(1),
+});
+
+jobs.delete("/:id/attachments", authMiddleware, async (c) => {
+  const user = c.get("user");
+  const prisma = c.get("prisma");
+  const id = c.req.param("id");
+
+  if (!user.roles.includes("BUYER")) {
+    return c.json({ error: "Only buyers can manage job attachments" }, 403);
+  }
+
+  let body: z.infer<typeof removeAttachmentSchema>;
+  try {
+    body = removeAttachmentSchema.parse(await c.req.json());
+  } catch (err) {
+    return c.json({ error: "Invalid request body", details: err }, 400);
+  }
+
+  const job = await prisma.job.findUnique({
+    where: { id },
+    select: { buyerId: true, attachmentKeys: true, attachmentNames: true },
+  });
+
+  if (!job) return c.json({ error: "Job not found" }, 404);
+  if (job.buyerId !== user.id) return c.json({ error: "Forbidden" }, 403);
+
+  const keys = job.attachmentKeys as string[];
+  const names = job.attachmentNames as string[];
+  const idx = keys.indexOf(body.key);
+
+  if (idx === -1) {
+    return c.json({ error: "Attachment not found on this job" }, 404);
+  }
+
+  const newKeys = keys.filter((_, i) => i !== idx);
+  const newNames = names.filter((_, i) => i !== idx);
+
+  const updated = await prisma.job.update({
+    where: { id },
+    data: {
+      attachmentKeys: newKeys,
+      attachmentNames: newNames,
+    } as any,
+    select: { id: true, attachmentKeys: true, attachmentNames: true },
+  });
+
+  return c.json({
+    attachments: (updated.attachmentKeys as string[]).map((k, i) => ({
+      key: k,
+      filename: (updated.attachmentNames as string[])[i],
+    })),
+  });
+});
+
 // ─── GET /api/jobs/:id/attachments ──────────────────────────────────────────
 // Returns presigned download URLs for all files attached to a job.
 // Accessible by the buyer who owns the job, and by any agent with an active contract on it.
@@ -358,15 +479,29 @@ jobs.get("/:id/attachments", authMiddleware, async (c) => {
 });
 
 // ─── PATCH /api/jobs/:id ─────────────────────────────────────────────────────
-// Buyer updates a job's attachment list (or other mutable fields) after creation.
+// Buyer updates a job. Blocked if any proposal exists (any status).
+// Category cannot be changed. No rebroadcast on update.
 const updateJobSchema = z.object({
+  // Core fields
+  title: z.string().min(1).optional(),
+  description: z.string().min(10).optional(),
+  budget: z.number().positive().nullable().optional(),
+  currency: z.string().optional(),
+  deadline: z.string().datetime().nullable().optional(),
+  // Scope clarity
   briefDetail: z.string().nullable().optional(),
   attachmentKeys: z.array(z.string()).optional(),
   attachmentNames: z.array(z.string()).optional(),
   exampleUrls: z.array(z.string().url()).optional(),
+  // Delivery preferences
   desiredDeliveryDays: z.number().int().positive().nullable().optional(),
   expressRequested: z.boolean().optional(),
   preferredOutputFormats: z.array(z.string()).optional(),
+  // Proposal settings
+  proposalDeadlineHours: z.number().int().positive().nullable().optional(),
+  maxProposals: z.number().int().positive().nullable().optional(),
+  // Buyer preferences
+  preferHuman: z.boolean().optional(),
   budgetFlexible: z.boolean().optional(),
   requiredLanguage: z.string().nullable().optional(),
 });
@@ -380,11 +515,24 @@ jobs.patch("/:id", authMiddleware, async (c) => {
     return c.json({ error: "Only buyers can update jobs" }, 403);
   }
 
-  const job = await prisma.job.findUnique({ where: { id } });
+  const job = await prisma.job.findUnique({
+    where: { id },
+    select: {
+      buyerId: true,
+      status: true,
+      _count: { select: { proposals: true } },
+    },
+  });
   if (!job) return c.json({ error: "Job not found" }, 404);
   if (job.buyerId !== user.id) return c.json({ error: "Forbidden" }, 403);
   if (job.status !== "OPEN") {
     return c.json({ error: "Only OPEN jobs can be updated" }, 409);
+  }
+  if (job._count.proposals > 0) {
+    return c.json(
+      { error: "This job cannot be edited because it already has proposals" },
+      409
+    );
   }
 
   let body: z.infer<typeof updateJobSchema>;
@@ -404,17 +552,24 @@ jobs.patch("/:id", authMiddleware, async (c) => {
     );
   }
 
-  // Build update payload explicitly — avoids TS losing the union type through conditional spreads
-  const updateData: Record<string, unknown> = {}
-  if (body.briefDetail !== undefined)           updateData.briefDetail = body.briefDetail
-  if (body.attachmentKeys !== undefined)        updateData.attachmentKeys = body.attachmentKeys
-  if (body.attachmentNames !== undefined)       updateData.attachmentNames = body.attachmentNames
-  if (body.exampleUrls !== undefined)           updateData.exampleUrls = body.exampleUrls
-  if (body.desiredDeliveryDays !== undefined)   updateData.desiredDeliveryDays = body.desiredDeliveryDays
-  if (body.expressRequested !== undefined)      updateData.expressRequested = body.expressRequested
-  if (body.preferredOutputFormats !== undefined) updateData.preferredOutputFormats = body.preferredOutputFormats
-  if (body.budgetFlexible !== undefined)        updateData.budgetFlexible = body.budgetFlexible
-  if (body.requiredLanguage !== undefined)      updateData.requiredLanguage = body.requiredLanguage
+  const updateData: Record<string, unknown> = {};
+  if (body.title !== undefined)                  updateData.title = body.title;
+  if (body.description !== undefined)            updateData.description = body.description;
+  if (body.budget !== undefined)                 updateData.budget = body.budget;
+  if (body.currency !== undefined)               updateData.currency = body.currency;
+  if (body.deadline !== undefined)               updateData.deadline = body.deadline ? new Date(body.deadline) : null;
+  if (body.briefDetail !== undefined)            updateData.briefDetail = body.briefDetail;
+  if (body.attachmentKeys !== undefined)         updateData.attachmentKeys = body.attachmentKeys;
+  if (body.attachmentNames !== undefined)        updateData.attachmentNames = body.attachmentNames;
+  if (body.exampleUrls !== undefined)            updateData.exampleUrls = body.exampleUrls;
+  if (body.desiredDeliveryDays !== undefined)    updateData.desiredDeliveryDays = body.desiredDeliveryDays;
+  if (body.expressRequested !== undefined)       updateData.expressRequested = body.expressRequested;
+  if (body.preferredOutputFormats !== undefined) updateData.preferredOutputFormats = body.preferredOutputFormats;
+  if (body.proposalDeadlineHours !== undefined)  updateData.proposalDeadlineHours = body.proposalDeadlineHours;
+  if (body.maxProposals !== undefined)           updateData.maxProposals = body.maxProposals;
+  if (body.preferHuman !== undefined)            updateData.preferHuman = body.preferHuman;
+  if (body.budgetFlexible !== undefined)         updateData.budgetFlexible = body.budgetFlexible;
+  if (body.requiredLanguage !== undefined)       updateData.requiredLanguage = body.requiredLanguage;
 
   const updated = await prisma.job.update({
     where: { id },
@@ -422,6 +577,44 @@ jobs.patch("/:id", authMiddleware, async (c) => {
   });
 
   return c.json({ job: updated });
+});
+
+// ─── DELETE /api/jobs/:id ────────────────────────────────────────────────────
+// Hard-deletes a job and all its proposals.
+// Blocked if any contract row references this job (any status).
+jobs.delete("/:id", authMiddleware, async (c) => {
+  const user = c.get("user");
+  const prisma = c.get("prisma");
+  const id = c.req.param("id");
+
+  if (!user.roles.includes("BUYER")) {
+    return c.json({ error: "Only buyers can delete jobs" }, 403);
+  }
+
+  const job = await prisma.job.findUnique({
+    where: { id },
+    select: {
+      buyerId: true,
+      contract: { select: { id: true } },
+    },
+  });
+
+  if (!job) return c.json({ error: "Job not found" }, 404);
+  if (job.buyerId !== user.id) return c.json({ error: "Forbidden" }, 403);
+
+  if (job.contract) {
+    return c.json(
+      { error: "This job cannot be deleted because it has an associated contract" },
+      409
+    );
+  }
+
+  await prisma.$transaction([
+    prisma.proposal.deleteMany({ where: { jobId: id } }),
+    prisma.job.delete({ where: { id } }),
+  ]);
+
+  return c.json({ success: true });
 });
 
 export default jobs;
