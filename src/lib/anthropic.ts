@@ -101,13 +101,44 @@ export async function generateContract(
   job: Job,
   proposal: Proposal,
 ): Promise<{ result: ContractContent; audit: AiAuditMeta }> {
-  const deadline = proposal.estimatedDays
-    ? new Date(Date.now() + proposal.estimatedDays * 86400000)
-        .toISOString()
-        .split("T")[0]
-    : "TBD";
+  // Access new fields via `as any` — Prisma TS cache may lag after migrations
+  const p = proposal as any;
+  const j = job as any;
 
-  const inputPrompt = `Generate a plain English service contract for:\nJob: ${job.title} - ${job.description}\nAgreed price: ${proposal.price} ${proposal.currency}\nDeadline: ${deadline} (${proposal.estimatedDays} days)\nAgent proposal: ${proposal.message}\n\nInclude sections: Scope of Work, Deliverables, Payment Terms,\nRevision Policy (2 revisions), IP Ownership (buyer owns on payment),\nDispute Resolution. Keep it clear and under 400 words.\nRespond in JSON only (no markdown): { "scope": string, "deliverables": string, "fullContractText": string }`;
+  const deliveryDays: number = p.deliveryDays ?? proposal.estimatedDays ?? 7;
+  const revisionsIncluded: number = p.revisionsIncluded ?? 2;
+  const deliveryVariants: number = p.deliveryVariants ?? 1;
+  const expressDelivery: boolean = p.expressRequested ?? false;
+  // basePrice is in cents; fall back to proposal.price (already currency units)
+  const agreedPrice: number = p.basePrice
+    ? p.basePrice / 100
+    : (proposal as any).price ?? 0;
+  const currency: string = (proposal as any).currency ?? "USD";
+
+  const deadline = new Date(Date.now() + deliveryDays * 86400000)
+    .toISOString()
+    .split("T")[0];
+
+  // Build optional context lines only when data is present
+  const lines: string[] = [
+    `Job Title: ${job.title}`,
+    `Job Description: ${job.description}`,
+  ];
+  if (j.briefDetail) lines.push(`Detailed Brief: ${j.briefDetail}`);
+  if (j.preferredOutputFormats?.length) lines.push(`Preferred Output Formats: ${(j.preferredOutputFormats as string[]).join(", ")}`);
+  if (j.requiredLanguage) lines.push(`Required Language: ${j.requiredLanguage}`);
+  if (j.desiredDeliveryDays) lines.push(`Buyer Desired Delivery: ${j.desiredDeliveryDays} days`);
+  lines.push(`Agent Proposal Message: ${proposal.message}`);
+  if (p.scopeNotes) lines.push(`Agent Scope Notes: ${p.scopeNotes}`);
+  if (p.questionsForBuyer) lines.push(`Agent Questions to Buyer: ${p.questionsForBuyer}`);
+  if (p.buyerAnswers) lines.push(`Buyer Answers: ${p.buyerAnswers}`);
+  lines.push(`Agreed Price: ${agreedPrice} ${currency}`);
+  lines.push(`Delivery Deadline: ${deadline} (${deliveryDays} days)`);
+  lines.push(`Revisions Included: ${revisionsIncluded}`);
+  if (deliveryVariants > 1) lines.push(`Delivery Variants: ${deliveryVariants}`);
+  if (expressDelivery) lines.push(`Express Delivery: Yes`);
+
+  const inputPrompt = `Generate a plain English service contract for the following engagement:\n\n${lines.join("\n")}\n\nInclude these sections: Scope of Work, Deliverables, Payment Terms, Revision Policy (${revisionsIncluded} revision${revisionsIncluded !== 1 ? "s" : ""} included), IP Ownership (buyer owns all work upon payment), Dispute Resolution${expressDelivery ? ", Express Delivery Terms" : ""}. Keep it clear and under 500 words.\nRespond in JSON only (no markdown): { "scope": string, "deliverables": string, "fullContractText": string }`;
 
   const startedAt = Date.now();
   const message = await getClient().messages.create({
@@ -142,7 +173,7 @@ export async function generateContract(
     const fallback: ContractContent = {
       scope: `Provide services for: ${job.title}`,
       deliverables: `Completed deliverable as described in the job posting`,
-      fullContractText: `Service Agreement\n\nScope: ${job.title}\nPrice: ${proposal.price} ${proposal.currency}\nDeadline: ${deadline}\n\nBoth parties agree to the terms outlined in the proposal.`,
+      fullContractText: `Service Agreement\n\nScope: ${job.title}\nPrice: ${agreedPrice} ${currency}\nDeadline: ${deadline} (${deliveryDays} days)\nRevisions: ${revisionsIncluded}\n\nBoth parties agree to the terms outlined in the proposal.`,
     };
     return {
       result: fallback,

@@ -102,6 +102,17 @@ proposals.post(
       },
     });
 
+    // If this proposal is for a direct-request job, mark it as ACCEPTED
+    // so the exclusive window is considered fulfilled. Fire-and-forget.
+    if ((job as any).directRequestStatus === "PENDING" && (job as any).targetAgentId === agentProfile.id) {
+      prisma.job.update({
+        where: { id: body.jobId },
+        data: { ...({ directRequestStatus: "ACCEPTED" } as any) },
+      }).catch((err: unknown) =>
+        console.error("[proposals] Failed to mark direct request as ACCEPTED:", err),
+      );
+    }
+
     console.log(
       `[proposals] New proposal ${proposal.id} for job ${body.jobId}. Buyer should be notified.`,
     );

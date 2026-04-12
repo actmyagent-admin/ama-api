@@ -131,6 +131,7 @@ model User {
   payouts              Payout[]
   subscription         Subscription?
   subscriptionEvents   SubscriptionEvent[]
+  directRequestEvents  DirectRequestEvent[]
 }
 
 model AgentProfile {
@@ -217,13 +218,15 @@ model AgentProfile {
   moneyBackGuarantee     Boolean   @default(false)
   guaranteeTerms         String?
 
-  proposals       Proposal[]
-  contracts       Contract[]
-  messages        Message[]       @relation("MessageAgentProfile")
-  deliveries      Delivery[]      @relation("DeliveryAgentProfile")
-  errorLogs       AgentErrorLog[]
-  broadcastLogs   BroadcastLog[]
-  featuredEntries FeaturedAgent[]
+  proposals             Proposal[]
+  contracts             Contract[]
+  messages              Message[]       @relation("MessageAgentProfile")
+  deliveries            Delivery[]      @relation("DeliveryAgentProfile")
+  errorLogs             AgentErrorLog[]
+  broadcastLogs         BroadcastLog[]
+  featuredEntries       FeaturedAgent[]
+  directTargetJobs      Job[]           @relation("DirectTarget")
+  directRequestEvents   DirectRequestEvent[]
 
   @@index([userId])
 }
@@ -265,11 +268,26 @@ model Job {
   budgetFlexible         Boolean   @default(false)
   requiredLanguage       String?   @default("English")
 
-  proposals      Proposal[]
-  contract       Contract?
-  aiAuditLogs    AiAuditLog[]
-  errorLogs      AgentErrorLog[]
-  broadcastLogs  BroadcastLog[]
+  // ─── DIRECT REQUEST ───────────────────────────────────────────
+  routingType                String?    @default("BROADCAST")
+  // 'BROADCAST' | 'DIRECT' | 'DIRECT_THEN_BROADCAST'
+  targetAgentId              String?    @db.Uuid
+  targetAgent                AgentProfile? @relation("DirectTarget", fields: [targetAgentId], references: [id])
+  broadcastOnDecline         Boolean   @default(false)
+  directRequestStatus        String?
+  // null | 'PENDING' | 'ACCEPTED' | 'DECLINED' | 'EXPIRED' | 'BROADCAST_CONVERTED'
+  directRequestExpiresAt     DateTime?
+  directRequestSentAt        DateTime?
+  directRequestDeclinedAt    DateTime?
+  directRequestDeclineReason String?
+  broadcastConvertedAt       DateTime?
+
+  proposals             Proposal[]
+  contract              Contract?
+  aiAuditLogs           AiAuditLog[]
+  errorLogs             AgentErrorLog[]
+  broadcastLogs         BroadcastLog[]
+  directRequestEvents   DirectRequestEvent[]
 }
 
 model Proposal {
@@ -724,6 +742,28 @@ model FeaturedAgent {
   createdAt      DateTime     @default(now())
   updatedAt      DateTime     @updatedAt
 
+  @@index([agentProfileId])
+}
+
+// Audit trail for every state change in the direct request lifecycle
+model DirectRequestEvent {
+  id             String       @id @default(uuid()) @db.Uuid
+  jobId          String       @db.Uuid
+  job            Job          @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  agentProfileId String       @db.Uuid
+  agentProfile   AgentProfile @relation(fields: [agentProfileId], references: [id], onDelete: Cascade)
+  buyerId        String       @db.Uuid
+  buyer          User         @relation(fields: [buyerId], references: [id], onDelete: Cascade)
+
+  eventType          String
+  // 'sent' | 'webhook_failed' | 'webhook_retried' | 'accepted' | 'declined' | 'broadcast_converted'
+  webhookAttempts    Int      @default(0)
+  webhookLastError   String?
+  metadata           Json?
+
+  createdAt          DateTime @default(now())
+
+  @@index([jobId])
   @@index([agentProfileId])
 }
 

@@ -1,8 +1,14 @@
 import { Hono } from "hono";
 import { z } from "zod";
 import { authMiddleware } from "../middleware/auth.js";
+import { combinedAuthMiddleware } from "../middleware/combinedAuth.js";
 import { categorizeJob } from "../lib/anthropic.js";
 import { broadcastJob } from "../lib/broadcast.js";
+import {
+  sendDirectRequestWebhook,
+  convertDirectToBroadcast,
+  notifyBuyerDirectDeclined,
+} from "../lib/directRequest.js";
 import {
   generateUploadUrl,
   generateDownloadUrl,
@@ -236,6 +242,145 @@ jobs.get("/my", authMiddleware, async (c) => {
   });
 
   return c.json({ jobs: jobList, limit, offset });
+});
+
+// ─── GET /api/jobs/received-direct-requests ─────────────────────────────────
+// Frontend endpoint for AGENT_LISTER users.
+// Returns all direct-request jobs addressed to ANY agent profile owned by
+// the authenticated user, across all their listings.
+// Query: status? (PENDING|ACCEPTED|DECLINED|BROADCAST_CONVERTED), limit?, offset?
+jobs.get("/received-direct-requests", authMiddleware, async (c) => {
+  const user   = c.get("user");
+  const prisma = c.get("prisma");
+
+  if (!user.roles.includes("AGENT_LISTER")) {
+    return c.json({ error: "Only AGENT_LISTER accounts can access this endpoint" }, 403);
+  }
+
+  const status = c.req.query("status");
+  const limit  = Math.min(Number(c.req.query("limit")  ?? 20), 100);
+  const offset = Number(c.req.query("offset") ?? 0);
+
+  // Collect all agent profiles owned by this user
+  const ownedProfiles = await prisma.agentProfile.findMany({
+    where: { userId: user.id, isDeleted: false },
+    select: { id: true },
+  });
+
+  if (!ownedProfiles.length) {
+    return c.json({ directRequests: [], limit, offset });
+  }
+
+  const profileIds = ownedProfiles.map((p) => p.id);
+
+  const requests = await (prisma as any).job.findMany({
+    where: {
+      targetAgentId: { in: profileIds },
+      ...(status ? { directRequestStatus: status } : {}),
+    },
+    orderBy: { createdAt: "desc" },
+    take:    limit,
+    skip:    offset,
+    select: {
+      id:                          true,
+      title:                       true,
+      description:                 true,
+      category:                    true,
+      budget:                      true,
+      currency:                    true,
+      deadline:                    true,
+      status:                      true,
+      createdAt:                   true,
+      desiredDeliveryDays:         true,
+      expressRequested:            true,
+      preferredOutputFormats:      true,
+      briefDetail:                 true,
+      attachmentKeys:              true,
+      attachmentNames:             true,
+      routingType:                 true,
+      broadcastOnDecline:          true,
+      directRequestStatus:         true,
+      directRequestSentAt:         true,
+      directRequestExpiresAt:      true,
+      directRequestDeclinedAt:     true,
+      directRequestDeclineReason:  true,
+      broadcastConvertedAt:        true,
+      targetAgent: {
+        select: { id: true, name: true, slug: true, mainPic: true },
+      },
+      buyer: {
+        select: { id: true, name: true, userName: true, mainPic: true },
+      },
+      proposals: {
+        where: { agentProfileId: { in: profileIds } },
+        select: { id: true, status: true, price: true, currency: true, estimatedDays: true, createdAt: true },
+      },
+      contract: {
+        select: { id: true, status: true, price: true, currency: true, deadline: true },
+      },
+    },
+  });
+
+  return c.json({ directRequests: requests, limit, offset });
+});
+
+// ─── GET /api/jobs/direct-requests ──────────────────────────────────────────
+// Agent fetches all direct requests addressed to them (single profile).
+// Auth: API key (agent system) or JWT (human lister).
+// Query: status? (PENDING | ACCEPTED | DECLINED | BROADCAST_CONVERTED), limit?, offset?
+jobs.get("/direct-requests", combinedAuthMiddleware, async (c) => {
+  const prisma    = c.get("prisma");
+  const actorType = c.get("actorType");
+
+  const agentProfile =
+    actorType === "AGENT"
+      ? c.get("agentProfile")
+      : await prisma.agentProfile.findFirst({
+          where: { userId: c.get("user").id },
+        });
+
+  if (!agentProfile) {
+    return c.json({ error: "Agent profile not found" }, 404);
+  }
+
+  const status  = c.req.query("status");
+  const limit   = Math.min(Number(c.req.query("limit")  ?? 20), 100);
+  const offset  = Number(c.req.query("offset") ?? 0);
+
+  const requests = await (prisma as any).job.findMany({
+    where: {
+      targetAgentId:       agentProfile.id,
+      ...(status ? { directRequestStatus: status } : {}),
+    },
+    orderBy: { createdAt: "desc" },
+    take:    limit,
+    skip:    offset,
+    select: {
+      id:                         true,
+      title:                      true,
+      description:                true,
+      category:                   true,
+      budget:                     true,
+      currency:                   true,
+      deadline:                   true,
+      status:                     true,
+      createdAt:                  true,
+      desiredDeliveryDays:        true,
+      preferredOutputFormats:     true,
+      routingType:                true,
+      directRequestStatus:        true,
+      directRequestSentAt:        true,
+      directRequestExpiresAt:     true,
+      directRequestDeclinedAt:    true,
+      directRequestDeclineReason: true,
+      broadcastConvertedAt:       true,
+      buyer: {
+        select: { id: true, name: true, userName: true, mainPic: true },
+      },
+    },
+  });
+
+  return c.json({ directRequests: requests, limit, offset });
 });
 
 // GET /api/jobs/:id
@@ -615,6 +760,316 @@ jobs.delete("/:id", authMiddleware, async (c) => {
   ]);
 
   return c.json({ success: true });
+});
+
+// ─── POST /api/jobs/direct-request ──────────────────────────────────────────
+// Buyer sends a direct request to a specific agent. Creates a Job row with
+// routingType DIRECT (or DIRECT_THEN_BROADCAST when broadcastOnDecline=true),
+// fires one webhook to the target agent, and returns immediately.
+const createDirectRequestSchema = z.object({
+  agentProfileId:        z.string().uuid(),
+  title:                 z.string().min(1),
+  description:           z.string().min(10),
+  category:              z.string().optional(),
+  budget:                z.number().positive().optional(),
+  currency:              z.string().default("USD"),
+  deadline:              z.string().datetime().optional(),
+  briefDetail:           z.string().optional(),
+  attachmentKeys:        z.array(z.string()).optional(),
+  attachmentNames:       z.array(z.string()).optional(),
+  exampleUrls:           z.array(z.string().url()).optional(),
+  desiredDeliveryDays:   z.number().int().positive().optional(),
+  preferredOutputFormats: z.array(z.string()).optional(),
+  budgetFlexible:        z.boolean().optional(),
+  broadcastOnDecline:    z.boolean().default(false),
+});
+
+jobs.post("/direct-request", authMiddleware, async (c) => {
+  const user = c.get("user");
+  const prisma = c.get("prisma");
+
+  if (!user.roles.includes("BUYER")) {
+    return c.json({ error: "Only BUYER accounts can send direct requests" }, 403);
+  }
+
+  let body: z.infer<typeof createDirectRequestSchema>;
+  try {
+    body = createDirectRequestSchema.parse(await c.req.json());
+  } catch (err) {
+    return c.json({ error: "Invalid request body", details: err }, 400);
+  }
+
+  // Verify agent exists, is active, and is not deleted
+  const agent = await prisma.agentProfile.findFirst({
+    where: {
+      id:        body.agentProfileId,
+      isActive:  true,
+      isDeleted: false,
+    },
+    include: { user: true, categories: true },
+  });
+
+  if (!agent) {
+    return c.json({ error: "Agent not found or not available for direct requests" }, 404);
+  }
+
+  // Check agent capacity
+  if (
+    agent.maxConcurrentJobs !== null &&
+    agent.currentActiveJobs >= agent.maxConcurrentJobs
+  ) {
+    return c.json(
+      {
+        error: "This agent is currently at full capacity",
+        code: "AGENT_AT_CAPACITY",
+        availabilityStatus: agent.availabilityStatus,
+      },
+      409,
+    );
+  }
+
+  // Use provided category, or fall back to the agent's first category
+  const category =
+    body.category ?? agent.categories[0]?.slug ?? "other";
+
+  const job = await prisma.job.create({
+    data: {
+      buyerId:     user.id,
+      title:       body.title,
+      description: body.description,
+      category,
+      budget:      body.budget ?? undefined,
+      currency:    body.currency,
+      deadline:    body.deadline ? new Date(body.deadline) : null,
+      // Scope clarity
+      ...(body.briefDetail           !== undefined && { briefDetail:           body.briefDetail }),
+      ...(body.attachmentKeys        !== undefined && { attachmentKeys:        body.attachmentKeys }),
+      ...(body.attachmentNames       !== undefined && { attachmentNames:       body.attachmentNames }),
+      ...(body.exampleUrls           !== undefined && { exampleUrls:           body.exampleUrls }),
+      // Delivery preferences
+      ...(body.desiredDeliveryDays    !== undefined && { desiredDeliveryDays:   body.desiredDeliveryDays }),
+      ...(body.preferredOutputFormats !== undefined && { preferredOutputFormats: body.preferredOutputFormats }),
+      ...(body.budgetFlexible         !== undefined && { budgetFlexible:        body.budgetFlexible }),
+      // Direct request routing (new fields — cast until `prisma generate` is run)
+      ...({
+        routingType:            body.broadcastOnDecline ? "DIRECT_THEN_BROADCAST" : "DIRECT",
+        targetAgentId:          body.agentProfileId,
+        broadcastOnDecline:     body.broadcastOnDecline,
+        directRequestStatus:    "PENDING",
+        directRequestSentAt:    new Date(),
+        directRequestExpiresAt: null, // no expiry — handled manually or by buyer action
+      } as any),
+    },
+  });
+
+  // Fire webhook fire-and-forget — never block the response
+  sendDirectRequestWebhook(job, agent, prisma).catch((err: unknown) =>
+    console.error("[jobs] sendDirectRequestWebhook unhandled error:", err),
+  );
+
+  return c.json(
+    {
+      job,
+      message: "Direct request sent. The agent has been notified via webhook.",
+    },
+    201,
+  );
+});
+
+// ─── POST /api/jobs/:id/decline-direct ──────────────────────────────────────
+// Agent (API key or human lister JWT) explicitly declines a direct request.
+// If broadcastOnDecline=true the job is automatically converted to broadcast.
+// Otherwise the buyer is notified and the job stays as DIRECT_DECLINED.
+const declineDirectSchema = z.object({
+  reason: z.string().optional(),
+});
+
+jobs.post("/:id/decline-direct", combinedAuthMiddleware, async (c) => {
+  const prisma      = c.get("prisma");
+  const actorType   = c.get("actorType");
+  const id          = c.req.param("id");
+
+  // Resolve the acting agent profile (from API key context or JWT lookup)
+  const agentProfile =
+    actorType === "AGENT"
+      ? c.get("agentProfile")
+      : await prisma.agentProfile.findFirst({
+          where: { userId: c.get("user").id },
+        });
+
+  if (!agentProfile) {
+    return c.json({ error: "Agent profile not found" }, 404);
+  }
+
+  let body: z.infer<typeof declineDirectSchema>;
+  try {
+    body = declineDirectSchema.parse(await c.req.json());
+  } catch (err) {
+    return c.json({ error: "Invalid request body", details: err }, 400);
+  }
+
+  const job = await (prisma as any).job.findFirst({
+    where: {
+      id,
+      targetAgentId:       agentProfile.id,
+      directRequestStatus: "PENDING",
+    },
+    include: { buyer: true },
+  }) as (any & { buyerId: string; broadcastOnDecline: boolean; buyer: any }) | null;
+
+  if (!job) {
+    return c.json(
+      { error: "Direct request not found or already handled" },
+      404,
+    );
+  }
+
+  const jobId = id!;
+
+  await prisma.$transaction([
+    prisma.job.update({
+      where: { id: jobId },
+      data: {
+        ...({
+          directRequestStatus:        "DECLINED",
+          directRequestDeclinedAt:    new Date(),
+          directRequestDeclineReason: body.reason ?? null,
+        } as any),
+      },
+    }),
+    (prisma as any).directRequestEvent.create({
+      data: {
+        jobId,
+        agentProfileId: agentProfile.id,
+        buyerId:        job.buyerId,
+        eventType:      "declined",
+        metadata:       { reason: body.reason ?? null, actorType },
+      },
+    }),
+  ]);
+
+  // Convert to broadcast or notify buyer
+  if (job.broadcastOnDecline) {
+    convertDirectToBroadcast(jobId, prisma).catch((err: unknown) =>
+      console.error("[jobs] convertDirectToBroadcast error:", err),
+    );
+  } else {
+    notifyBuyerDirectDeclined(job).catch((err: unknown) =>
+      console.error("[jobs] notifyBuyerDirectDeclined error:", err),
+    );
+  }
+
+  return c.json({ received: true });
+});
+
+// ─── GET /api/jobs/:id/direct-status ────────────────────────────────────────
+// Agent polls to check whether the direct request is still pending or has changed.
+// Auth: API key (agent system) or JWT (human lister).
+jobs.get("/:id/direct-status", combinedAuthMiddleware, async (c) => {
+  const prisma    = c.get("prisma");
+  const actorType = c.get("actorType");
+  const id        = c.req.param("id");
+
+  const agentProfile =
+    actorType === "AGENT"
+      ? c.get("agentProfile")
+      : await prisma.agentProfile.findFirst({
+          where: { userId: c.get("user").id },
+        });
+
+  if (!agentProfile) {
+    return c.json({ error: "Agent profile not found" }, 404);
+  }
+
+  const job = await (prisma as any).job.findFirst({
+    where: { id, targetAgentId: agentProfile.id },
+    select: {
+      directRequestStatus:    true,
+      directRequestExpiresAt: true,
+      title:                  true,
+      category:               true,
+      budget:                 true,
+    },
+  }) as {
+    directRequestStatus:    string | null;
+    directRequestExpiresAt: Date | null;
+    title:                  string;
+    category:               string;
+    budget:                 number | null;
+  } | null;
+
+  if (!job) return c.json({ error: "Direct request not found" }, 404);
+
+  const hoursRemaining =
+    job.directRequestExpiresAt
+      ? Math.max(
+          0,
+          Math.round(
+            (job.directRequestExpiresAt.getTime() - Date.now()) / 3_600_000,
+          ),
+        )
+      : null; // null = no expiry set
+
+  return c.json({
+    status:         job.directRequestStatus,
+    hoursRemaining,
+    expired:        hoursRemaining === 0,
+    // Tells the agent what action is expected
+    agentAction:
+      job.directRequestStatus === "PENDING" && hoursRemaining !== 0
+        ? "respond"  // submit a proposal or decline
+        : "ignore",  // window closed or already handled
+  });
+});
+
+// ─── POST /api/jobs/:id/convert-to-broadcast ────────────────────────────────
+// Buyer manually converts a DIRECT (or declined) job to a full broadcast.
+// Useful when broadcastOnDecline=false but the buyer still wants to open it up
+// after the agent declines or ignores it.
+jobs.post("/:id/convert-to-broadcast", authMiddleware, async (c) => {
+  const user   = c.get("user");
+  const prisma = c.get("prisma");
+  const id     = c.req.param("id");
+
+  if (!user.roles.includes("BUYER")) {
+    return c.json({ error: "Only buyers can convert a direct request to broadcast" }, 403);
+  }
+
+  const jobId = id!;
+
+  const job = await (prisma as any).job.findUnique({
+    where: { id: jobId },
+    select: {
+      buyerId:             true,
+      routingType:         true,
+      directRequestStatus: true,
+      targetAgentId:       true,
+    },
+  }) as {
+    buyerId:             string;
+    routingType:         string | null;
+    directRequestStatus: string | null;
+    targetAgentId:       string | null;
+  } | null;
+
+  if (!job) return c.json({ error: "Job not found" }, 404);
+  if (job.buyerId !== user.id) return c.json({ error: "Forbidden" }, 403);
+
+  if (!job.targetAgentId) {
+    return c.json({ error: "This job is not a direct request" }, 409);
+  }
+
+  if (job.directRequestStatus === "BROADCAST_CONVERTED") {
+    return c.json({ error: "Job has already been converted to broadcast" }, 409);
+  }
+
+  const broadcastCount = await convertDirectToBroadcast(jobId, prisma);
+
+  return c.json({
+    success: true,
+    broadcastCount,
+    message: `Job broadcast to ${broadcastCount} agent(s).`,
+  });
 });
 
 export default jobs;
