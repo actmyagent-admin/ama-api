@@ -83,12 +83,27 @@ jobs.post("/", authMiddleware, async (c) => {
     aiApiError = err instanceof Error ? err.message : String(err);
   }
 
+  // Resolve category slug → Category row (AI suggestion falls back to "other")
+  const rawCategorySlug = body.category ?? analysis.suggestedCategory;
+  const categoryRow = await prisma.category.findFirst({
+    where: { slug: rawCategorySlug },
+    select: { id: true, slug: true, name: true },
+  }) ?? await prisma.category.findFirst({
+    where: { slug: "other" },
+    select: { id: true, slug: true, name: true },
+  });
+
+  if (!categoryRow) {
+    return c.json({ error: "Category not found. Please provide a valid category slug." }, 400);
+  }
+
   const job = await prisma.job.create({
     data: {
       buyerId: user.id,
       title: body.title,
       description: body.description,
-      category: body.category ?? analysis.suggestedCategory,
+      category: categoryRow.slug,
+      categoryId: categoryRow.id,
       budget: body.budget ?? analysis.estimatedBudget ?? undefined,
       currency: body.currency,
       deadline: body.deadline ? new Date(body.deadline) : null,
@@ -109,6 +124,7 @@ jobs.post("/", authMiddleware, async (c) => {
       ...(body.budgetFlexible !== undefined && { budgetFlexible: body.budgetFlexible }),
       ...(body.requiredLanguage !== undefined && { requiredLanguage: body.requiredLanguage }),
     },
+    include: { categoryRef: { select: { id: true, name: true, slug: true } } },
   });
 
   // Persist AI audit log — fire-and-forget, never block the response
@@ -199,6 +215,7 @@ jobs.get("/", authMiddleware, async (c) => {
       title: true,
       description: true,
       category: true,
+      categoryRef: { select: { id: true, name: true, slug: true } },
       budget: true,
       currency: true,
       deadline: true,
@@ -232,6 +249,7 @@ jobs.get("/my", authMiddleware, async (c) => {
     take: limit,
     skip: offset,
     include: {
+      categoryRef: { select: { id: true, name: true, slug: true } },
       proposals: {
         select: { id: true, status: true, price: true, currency: true, estimatedDays: true },
       },
@@ -392,6 +410,7 @@ jobs.get("/:id", authMiddleware, async (c) => {
   const job = await prisma.job.findUnique({
     where: { id },
     include: {
+      categoryRef: { select: { id: true, name: true, slug: true } },
       proposals: user.roles.includes("BUYER")
         ? { include: { agentProfile: true }, orderBy: { createdAt: "desc" } }
         : false,
@@ -828,16 +847,27 @@ jobs.post("/direct-request", authMiddleware, async (c) => {
     );
   }
 
-  // Use provided category, or fall back to the agent's first category
-  const category =
-    body.category ?? agent.categories[0]?.slug ?? "other";
+  // Resolve category: provided slug → agent's first category → "other"
+  const rawCategorySlugDR = body.category ?? agent.categories[0]?.slug ?? "other";
+  const categoryRowDR = await prisma.category.findFirst({
+    where: { slug: rawCategorySlugDR },
+    select: { id: true, slug: true, name: true },
+  }) ?? await prisma.category.findFirst({
+    where: { slug: "other" },
+    select: { id: true, slug: true, name: true },
+  });
+
+  if (!categoryRowDR) {
+    return c.json({ error: "Category not found. Please provide a valid category slug." }, 400);
+  }
 
   const job = await prisma.job.create({
     data: {
       buyerId:     user.id,
       title:       body.title,
       description: body.description,
-      category,
+      category:    categoryRowDR.slug,
+      categoryId:  categoryRowDR.id,
       budget:      body.budget ?? undefined,
       currency:    body.currency,
       deadline:    body.deadline ? new Date(body.deadline) : null,
@@ -857,9 +887,10 @@ jobs.post("/direct-request", authMiddleware, async (c) => {
         broadcastOnDecline:     body.broadcastOnDecline,
         directRequestStatus:    "PENDING",
         directRequestSentAt:    new Date(),
-        directRequestExpiresAt: null, // no expiry — handled manually or by buyer action
+        directRequestExpiresAt: null,
       } as any),
     },
+    include: { categoryRef: { select: { id: true, name: true, slug: true } } },
   });
 
   // Fire webhook fire-and-forget — never block the response

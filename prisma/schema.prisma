@@ -282,6 +282,10 @@ model Job {
   directRequestDeclineReason String?
   broadcastConvertedAt       DateTime?
 
+  // FK reference to Category — nullable so rows created before this migration remain valid
+  categoryId    String?       @db.Uuid
+  categoryRef   Category?     @relation(fields: [categoryId], references: [id])
+
   proposals             Proposal[]
   contract              Contract?
   aiAuditLogs           AiAuditLog[]
@@ -480,6 +484,7 @@ model Category {
   createdAt DateTime       @default(now())
   updatedAt DateTime       @updatedAt
   agents    AgentProfile[]
+  jobs      Job[]
 }
 
 model AiAuditLog {
