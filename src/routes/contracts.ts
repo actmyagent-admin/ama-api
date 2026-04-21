@@ -77,6 +77,40 @@ async function getContractAndCheckAccess(
         },
       },
       agentProfile: { include: { user: true } },
+      buyer: {
+        select: { id: true, name: true, email: true, userName: true, mainPic: true },
+      },
+      inhouseOrder: {
+        select: {
+          id: true,
+          priceCents: true,
+          currency: true,
+          buyerInputs: true,
+          description: true,
+          exampleUrls: true,
+          attachmentKeys: true,
+          attachmentNames: true,
+          status: true,
+          extraRevisions: true,
+          extraVariants: true,
+          extrasCents: true,
+          createdAt: true,
+          service: {
+            select: {
+              id: true,
+              pageSlug: true,
+              packageName: true,
+              tagline: true,
+              description: true,
+              priceCents: true,
+              deliveryDays: true,
+              revisionsIncluded: true,
+              deliveryVariants: true,
+              whatsIncluded: true,
+            },
+          },
+        },
+      },
     },
   });
   if (!contract) return { contract: null, isBuyer: false, isAgent: false };
@@ -84,26 +118,47 @@ async function getContractAndCheckAccess(
   const isBuyer = contract.buyerId === userId;
   const isAgent = contract.agentProfile.user.id === userId;
 
-  // Resolve signed download URLs for job attachments
-  const keys = contract.job.attachmentKeys as string[];
-  const names = contract.job.attachmentNames as string[];
-  const attachments = await Promise.all(
-    keys.map(async (key, i) => ({
-      url: await generateDownloadUrl(key, names[i]),
-      filename: names[i] ?? key.split("/").pop(),
+  // Resolve signed download URLs for job attachments (null for inhouse contracts)
+  const jobKeys = (contract.job?.attachmentKeys ?? []) as string[];
+  const jobNames = (contract.job?.attachmentNames ?? []) as string[];
+  const jobAttachments = await Promise.all(
+    jobKeys.map(async (key, i) => ({
+      url: await generateDownloadUrl(key, jobNames[i]),
+      filename: jobNames[i] ?? key.split("/").pop(),
+      key,
+    }))
+  );
+
+  // Resolve signed download URLs for inhouse order attachments
+  const inhouseOrder = contract.inhouseOrder as any
+  const orderKeys = (inhouseOrder?.attachmentKeys ?? []) as string[];
+  const orderNames = (inhouseOrder?.attachmentNames ?? []) as string[];
+  const orderAttachments = await Promise.all(
+    orderKeys.map(async (key, i) => ({
+      url: await generateDownloadUrl(key, orderNames[i]),
+      filename: orderNames[i] ?? key.split("/").pop(),
       key,
     }))
   );
 
   const contractWithAttachments = {
     ...contract,
-    job: {
-      ...contract.job,
-      attachments,
-      // Remove raw keys from the response — clients use signed URLs only
-      attachmentKeys: undefined,
-      attachmentNames: undefined,
-    },
+    job: contract.job
+      ? {
+          ...contract.job,
+          attachments: jobAttachments,
+          attachmentKeys: undefined,
+          attachmentNames: undefined,
+        }
+      : null,
+    inhouseOrder: inhouseOrder
+      ? {
+          ...inhouseOrder,
+          attachments: orderAttachments,
+          attachmentKeys: undefined,
+          attachmentNames: undefined,
+        }
+      : null,
   };
 
   return { contract: contractWithAttachments, isBuyer, isAgent };

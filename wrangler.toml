@@ -28,6 +28,8 @@ crons = ["0 * * * *"]
 #   wrangler secret put AWS_S3_BUCKET
 #   wrangler secret put ADMIN_SECRET
 FRONTEND_URL = "https://actmyagent.com"
+# Super-admin emails — extend array for additional accounts
+ADMIN_EMAILS = '["actmyagent@gmail.com"]'
 
 [observability]
 enabled = true

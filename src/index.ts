@@ -28,6 +28,7 @@ import settingsRouter from './routes/settings.js'
 import profileRouter from './routes/profile.js'
 import stripeConnectRouter from './routes/stripeConnect.js'
 import featuredAgentsRouter from './routes/featuredAgents.js'
+import inhouseRouter from './routes/inhouse.js'
 
 type Bindings = {
   DATABASE_URL: string
@@ -44,6 +45,7 @@ type Bindings = {
   AWS_SECRET_ACCESS_KEY: string
   AWS_S3_BUCKET: string
   ADMIN_SECRET: string
+  ADMIN_EMAILS: string  // JSON array string e.g. '["a@b.com","c@d.com"]'
   HYPERDRIVE?: { connectionString: string }
 }
 
@@ -105,6 +107,7 @@ app.route('/api/settings', settingsRouter)
 app.route('/api/profile', profileRouter)
 app.route('/api/stripe/connect', stripeConnectRouter)
 app.route('/api/featured-agents', featuredAgentsRouter)
+app.route('/api/inhouse', inhouseRouter)
 
 app.get('/health', (c) =>
   c.json({ status: 'ok', timestamp: new Date().toISOString() }),
@@ -230,6 +233,7 @@ export default {
     process.env.AWS_SECRET_ACCESS_KEY = env.AWS_SECRET_ACCESS_KEY
     process.env.AWS_S3_BUCKET = env.AWS_S3_BUCKET
     process.env.ADMIN_SECRET = env.ADMIN_SECRET
+    process.env.ADMIN_EMAILS = env.ADMIN_EMAILS
     return app.fetch(request, env, ctx)
   },
 

@@ -240,26 +240,57 @@ jobs.get("/my", authMiddleware, async (c) => {
   const limit = Math.min(Number(c.req.query("limit") ?? 20), 100);
   const offset = Number(c.req.query("offset") ?? 0);
 
-  const jobList = await prisma.job.findMany({
-    where: {
-      buyerId: user.id,
-      ...(status ? { status: status as any } : {}),
-    },
-    orderBy: { createdAt: "desc" },
-    take: limit,
-    skip: offset,
-    include: {
-      categoryRef: { select: { id: true, name: true, slug: true } },
-      proposals: {
-        select: { id: true, status: true, price: true, currency: true, estimatedDays: true },
+  const [jobList, inhouseOrders] = await Promise.all([
+    prisma.job.findMany({
+      where: {
+        buyerId: user.id,
+        ...(status ? { status: status as any } : {}),
       },
-      contract: {
-        select: { id: true, status: true, price: true, currency: true, deadline: true },
+      orderBy: { createdAt: "desc" },
+      take: limit,
+      skip: offset,
+      include: {
+        categoryRef: { select: { id: true, name: true, slug: true } },
+        buyer: {
+          select: { id: true, name: true, email: true, userName: true, mainPic: true },
+        },
+        proposals: {
+          select: { id: true, status: true, price: true, currency: true, estimatedDays: true },
+        },
+        contract: {
+          select: { id: true, status: true, price: true, currency: true, deadline: true },
+        },
       },
-    },
-  });
+    }),
+    prisma.inhouseOrder.findMany({
+      where: { buyerId: user.id },
+      orderBy: { createdAt: "desc" },
+      take: limit,
+      skip: offset,
+      include: {
+        service: {
+          select: {
+            id: true,
+            pageSlug: true,
+            packageName: true,
+            priceCents: true,
+            deliveryDays: true,
+          },
+        },
+        contract: {
+          select: {
+            id: true,
+            status: true,
+            paymentDeadline: true,
+            payment: { select: { status: true } },
+            delivery: { select: { id: true, status: true, submittedAt: true } },
+          },
+        },
+      },
+    }),
+  ]);
 
-  return c.json({ jobs: jobList, limit, offset });
+  return c.json({ jobs: jobList, inhouseOrders, limit, offset });
 });
 
 // ─── GET /api/jobs/received-direct-requests ─────────────────────────────────

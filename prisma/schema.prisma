@@ -132,6 +132,7 @@ model User {
   subscription         Subscription?
   subscriptionEvents   SubscriptionEvent[]
   directRequestEvents  DirectRequestEvent[]
+  inhouseOrders        InhouseOrder[]
 }
 
 model AgentProfile {
@@ -147,7 +148,7 @@ model AgentProfile {
   currency      String     @default("USD")
   mainPic       String?
   coverPic      String?
-  webhookUrl    String
+  webhookUrl    String?
   // API key: only the bcrypt hash is stored; raw key shown once at registration
   apiKeyHash    String?
   // First 8 chars of raw key stored unencrypted for fast lookup (filter by prefix, then bcrypt compare)
@@ -218,6 +219,9 @@ model AgentProfile {
   moneyBackGuarantee     Boolean   @default(false)
   guaranteeTerms         String?
 
+  // ─── INHOUSE ──────────────────────────────────────────────────
+  isSuperAgent           Boolean   @default(false)
+
   proposals             Proposal[]
   contracts             Contract[]
   messages              Message[]       @relation("MessageAgentProfile")
@@ -227,6 +231,7 @@ model AgentProfile {
   featuredEntries       FeaturedAgent[]
   directTargetJobs      Job[]           @relation("DirectTarget")
   directRequestEvents   DirectRequestEvent[]
+  inhouseServices       InhouseService[]
 
   @@index([userId])
 }
@@ -336,10 +341,10 @@ model Proposal {
 
 model Contract {
   id                   String         @id @default(uuid()) @db.Uuid
-  jobId                String         @unique @db.Uuid
-  job                  Job            @relation(fields: [jobId], references: [id])
-  proposalId           String         @unique @db.Uuid
-  proposal             Proposal       @relation(fields: [proposalId], references: [id])
+  jobId                String?        @unique @db.Uuid
+  job                  Job?           @relation(fields: [jobId], references: [id])
+  proposalId           String?        @unique @db.Uuid
+  proposal             Proposal?      @relation(fields: [proposalId], references: [id])
   buyerId              String         @db.Uuid
   buyer                User           @relation(fields: [buyerId], references: [id])
   agentProfileId       String         @db.Uuid
@@ -401,6 +406,10 @@ model Contract {
   disputeEvidenceUrls      String[]  @default([])
   disputeResolvedBy        String?   // 'PLATFORM' | 'MUTUAL'
   disputeResolution        String?
+
+  // ─── INHOUSE ──────────────────────────────────────────────────
+  isInhouse      Boolean        @default(false)
+  inhouseOrder   InhouseOrder?
 
   messages       Message[]
   payment        Payment?
@@ -770,6 +779,68 @@ model DirectRequestEvent {
 
   @@index([jobId])
   @@index([agentProfileId])
+}
+
+// ─── INHOUSE MODELS ────────────────────────────────────────────────────────────
+
+// Platform's own service catalog — one row per package per landing page
+model InhouseService {
+  id                         String         @id @default(uuid()) @db.Uuid
+  pageSlug                   String         // maps to /[pageSlug] on the frontend
+  category                   String         // matches existing Job category taxonomy
+  packageName                String         // 'Basic' | 'Standard' | 'Premium'
+  tagline                    String?
+  description                String
+  priceCents                 Int            // always integers, never floats
+  deliveryDays               Int
+  revisionsIncluded          Int            @default(2)
+  deliveryVariants           Int            @default(1)
+  pricePerExtraRevisionCents Int?
+  pricePerExtraVariantCents  Int?
+  whatsIncluded              String[]       @default([])
+  whatsNotIncluded           String[]       @default([])
+  perfectFor                 String[]       @default([])
+  inputSchema                Json           @default("[]") // drives the dynamic order form
+  assignedAgentProfileId     String?        @db.Uuid
+  assignedAgent              AgentProfile?  @relation(fields: [assignedAgentProfileId], references: [id])
+  sortOrder                  Int            @default(0)
+  isHighlighted              Boolean        @default(false)
+  isActive                   Boolean        @default(true)
+  createdAt                  DateTime       @default(now())
+  updatedAt                  DateTime       @updatedAt
+  orders                     InhouseOrder[]
+
+  @@index([pageSlug])
+  @@index([assignedAgentProfileId])
+}
+
+// Created when a buyer selects an InhouseService package — immediately spawns a Contract
+model InhouseOrder {
+  id              String          @id @default(uuid()) @db.Uuid
+  serviceId       String          @db.Uuid
+  service         InhouseService  @relation(fields: [serviceId], references: [id])
+  buyerId         String          @db.Uuid
+  buyer           User            @relation(fields: [buyerId], references: [id])
+  priceCents      Int             // snapshot of price at order time (service price may change)
+  currency        String          @default("usd")
+  buyerInputs     Json            @default("{}")
+  attachmentKeys  String[]        @default([])
+  attachmentNames String[]        @default([])
+  description     String?
+  exampleUrls     String[]        @default([])
+  contractId      String?         @unique @db.Uuid
+  contract        Contract?       @relation(fields: [contractId], references: [id])
+  // pending_payment → paid → in_progress → delivered → completed | refunded | disputed
+  status          String          @default("pending_payment")
+  extraRevisions  Int             @default(0)
+  extraVariants   Int             @default(0)
+  extrasCents     Int             @default(0) // total charged for extras
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+
+  @@index([buyerId])
+  @@index([serviceId])
+  @@index([status])
 }
 
 // One row per webhook fire — covers both job broadcasts and message deliveries

@@ -426,6 +426,7 @@ agents.get('/', async (c) => {
   const agentProfiles = await prisma.agentProfile.findMany({
     where: {
       isActive: true,
+      isSuperAgent: false,
       ...(category ? { categories: { some: { slug: category } } } : {}),
       ...(search
         ? {
@@ -452,7 +453,7 @@ agents.get('/by-user/:userId', async (c) => {
   const userId = c.req.param('userId')
 
   const agentProfiles = await prisma.agentProfile.findMany({
-    where: { userId, isActive: true },
+    where: { userId, isActive: true, isSuperAgent: false },
     orderBy: { createdAt: 'desc' },
     select: agentProfileSelect,
   })
