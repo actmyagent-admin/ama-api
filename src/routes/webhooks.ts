@@ -2,6 +2,11 @@ import { Hono } from 'hono'
 import Stripe from 'stripe'
 import { stripe } from '../lib/stripe.js'
 import { activateContract } from '../lib/contractActivation.js'
+import {
+  settleLedgerEntries,
+  failLedgerEntries,
+  reverseLedgerEntries,
+} from '../lib/ledger.js'
 import type { Variables } from '../types/index.js'
 
 const webhooks = new Hono<{ Variables: Variables }>()
@@ -41,29 +46,70 @@ webhooks.post('/stripe', async (c) => {
 
   try {
     switch (event.type) {
-      case 'payment_intent.succeeded': {
-        // Card authorized — funds reserved but NOT yet captured (true escrow)
+      case 'payment_intent.amount_capturable_updated': {
+        // Card authorized — funds on hold, NOT yet captured (true escrow moment).
+        // This is the correct event for manual-capture PaymentIntents.
+        // payment_intent.succeeded fires later at actual capture time — handled below.
         const pi = event.data.object as { id: string; metadata: { contractId?: string } }
-        await prisma.payment.update({
+        const escrowedPayment = await prisma.payment.update({
           where: { stripePaymentIntentId: pi.id },
           data: { status: 'ESCROWED' },
         })
+        await settleLedgerEntries(prisma, escrowedPayment.id, pi.id)
         // Activate the contract — moves SIGNED_BOTH → ACTIVE and notifies agent to start work
         if (pi.metadata.contractId) {
           await activateContract(pi.metadata.contractId, prisma)
         }
         console.log(
-          `[webhooks] Payment ${pi.id} escrowed. Contract ${pi.metadata.contractId ?? 'unknown'} activated.`,
+          `[webhooks] Payment ${pi.id} escrowed (requires_capture). Contract ${pi.metadata.contractId ?? 'unknown'} activated.`,
         )
+        break
+      }
+
+      case 'payment_intent.succeeded': {
+        // Fires when funds are actually captured (after stripe.paymentIntents.capture() call).
+        // For our flow: releaseEscrow() already set the payment to RELEASED before calling
+        // Stripe capture, so by the time this fires the DB is already in the correct state.
+        // We just stamp capturedAt. If payment is still ESCROWED here (e.g. captured from
+        // the Stripe dashboard before delivery), we treat it the same as amount_capturable_updated.
+        const pi = event.data.object as { id: string; metadata: { contractId?: string } }
+        const payment = await prisma.payment.findUnique({
+          where: { stripePaymentIntentId: pi.id },
+        })
+        if (!payment) break
+
+        if (payment.status === 'RELEASED') {
+          // Normal path: captured via releaseEscrow() on delivery approval — stamp capturedAt
+          await prisma.payment.update({
+            where: { id: payment.id },
+            data: { capturedAt: new Date() },
+          })
+          console.log(`[webhooks] Payment ${pi.id} capture confirmed (capturedAt stamped).`)
+        } else if (payment.status === 'PENDING' || payment.status === 'ESCROWED') {
+          // Edge case: someone clicked Capture in the Stripe dashboard before delivery
+          // was approved, or amount_capturable_updated was missed. Treat as escrow.
+          await prisma.payment.update({
+            where: { id: payment.id },
+            data: { status: 'ESCROWED', capturedAt: new Date() },
+          })
+          await settleLedgerEntries(prisma, payment.id, pi.id)
+          if (pi.metadata.contractId) {
+            await activateContract(pi.metadata.contractId, prisma)
+          }
+          console.log(
+            `[webhooks] Payment ${pi.id} captured from dashboard — treated as escrow. Contract ${pi.metadata.contractId ?? 'unknown'} activated.`,
+          )
+        }
         break
       }
 
       case 'payment_intent.payment_failed': {
         const pi = event.data.object as { id: string }
-        await prisma.payment.update({
+        const failedPayment = await prisma.payment.update({
           where: { stripePaymentIntentId: pi.id },
           data: { status: 'REFUNDED' },
         })
+        await failLedgerEntries(prisma, failedPayment.id)
         console.log(`[webhooks] Payment ${pi.id} failed — marked REFUNDED. Buyer should be notified.`)
         break
       }
@@ -79,6 +125,7 @@ webhooks.post('/stripe', async (c) => {
             where: { stripePaymentIntentId: pi.id },
             data: { status: 'PENDING' },
           })
+          await reverseLedgerEntries(prisma, payment.id)
           console.log(
             `[webhooks] PaymentIntent ${pi.id} canceled (authorization expired). ` +
               `Contract ${payment.contractId} — buyer must re-authorize.`,

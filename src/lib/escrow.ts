@@ -5,6 +5,7 @@
  *  - Admin dispute resolution (admin.ts)
  */
 import { stripe } from './stripe.js'
+import { createRefundLedgerEntries } from './ledger.js'
 import type { PrismaClient } from '@prisma/client'
 
 export async function releaseEscrow(
@@ -59,6 +60,19 @@ export async function refundEscrow(
   stripePaymentIntentId: string,
   prisma: PrismaClient,
 ): Promise<void> {
+  // Fetch payment + contract before cancelling so we have amounts and user IDs for ledger
+  const payment = await prisma.payment.findUnique({
+    where: { id: paymentId },
+    include: {
+      contract: {
+        select: {
+          buyerId: true,
+          agentProfile: { select: { userId: true } },
+        },
+      },
+    },
+  })
+
   // Cancel the PaymentIntent (refunds automatically if never captured)
   await stripe.paymentIntents.cancel(stripePaymentIntentId)
 
@@ -72,4 +86,21 @@ export async function refundEscrow(
       data: { status: 'COMPLETED' },
     }),
   ])
+
+  if (payment) {
+    await createRefundLedgerEntries(
+      prisma,
+      {
+        paymentId: payment.id,
+        contractId,
+        buyerId: payment.contract.buyerId,
+        agentUserId: payment.contract.agentProfile.userId,
+        amountTotal: payment.amountTotal,
+        amountPlatformFee: payment.amountPlatformFee,
+        amountAgentReceives: payment.amountAgentReceives,
+        currency: payment.currency,
+      },
+      stripePaymentIntentId,
+    )
+  }
 }

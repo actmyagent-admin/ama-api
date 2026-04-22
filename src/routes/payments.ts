@@ -2,6 +2,7 @@ import { Hono } from 'hono'
 import { z } from 'zod'
 import { stripe } from '../lib/stripe.js'
 import { authMiddleware } from '../middleware/auth.js'
+import { createPendingLedgerEntries } from '../lib/ledger.js'
 import type { Variables } from '../types/index.js'
 
 const payments = new Hono<{ Variables: Variables }>()
@@ -75,7 +76,7 @@ payments.post('/create', authMiddleware, async (c) => {
     description: `ActMyAgent – ${contract.job?.title ?? contract.id}`,
   })
 
-  await prisma.payment.create({
+  const payment = await prisma.payment.create({
     data: {
       contractId: contract.id,
       stripePaymentIntentId: paymentIntent.id,
@@ -86,6 +87,18 @@ payments.post('/create', authMiddleware, async (c) => {
       agentStripeAccountId,
       status: 'PENDING',
     },
+  })
+
+  await createPendingLedgerEntries(prisma, {
+    paymentId: payment.id,
+    contractId: contract.id,
+    buyerId: user.id,
+    agentUserId: contract.agentProfile.userId,
+    amountTotal,
+    amountPlatformFee,
+    amountAgentReceives,
+    currency,
+    stripeReference: paymentIntent.id,
   })
 
   return c.json(
