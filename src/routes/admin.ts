@@ -89,6 +89,29 @@ admin.post('/disputes/:contractId/resolve', async (c) => {
   }
 })
 
+// ─── DELETE /api/admin/payments/:contractId/reset ────────────────────────────
+// Removes a stuck PENDING payment so the buyer can retry checkout.
+// Only safe on PENDING payments — ESCROWED funds must go through refund flow.
+admin.delete('/payments/:contractId/reset', async (c) => {
+  const prisma = c.get('prisma')
+  const { contractId } = c.req.param()
+
+  const payment = await prisma.payment.findUnique({ where: { contractId } })
+  if (!payment) return c.json({ error: 'No payment found for this contract' }, 404)
+
+  if (payment.status !== 'PENDING') {
+    return c.json(
+      { error: `Payment is in '${payment.status}' state — only PENDING payments can be reset. Use the dispute/refund flow for ESCROWED payments.` },
+      409,
+    )
+  }
+
+  await prisma.payment.delete({ where: { contractId } })
+
+  console.log(`[admin] Stuck PENDING payment reset for contract ${contractId}`)
+  return c.json({ reset: true, contractId })
+})
+
 // ─── GET /api/admin/disputes ─────────────────────────────────────────────────
 // List all open disputes for the admin dashboard.
 admin.get('/disputes', async (c) => {

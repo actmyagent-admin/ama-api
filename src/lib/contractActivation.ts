@@ -43,7 +43,7 @@ async function pushContractActiveToAgent(contract: {
   price: number;
   currency: string;
   deadline: Date;
-  agentProfile: { webhookUrl: string };
+  agentProfile: { webhookUrl: string | null };
   buyer: { name: string | null };
   job: { title: string; description: string; category: string } | null;
 }): Promise<void> {
