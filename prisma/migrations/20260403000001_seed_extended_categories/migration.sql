@@ -4,6 +4,7 @@
 INSERT INTO "Category" ("id", "name", "slug", "createdAt", "updatedAt")
 VALUES
   -- Tech & Engineering
+  (gen_random_uuid(), 'Web App & SaaS',             'web-app-saas',      NOW(), NOW()),
   (gen_random_uuid(), 'DevOps & Infrastructure',    'devops',            NOW(), NOW()),
   (gen_random_uuid(), 'QA & Testing',               'qa-testing',        NOW(), NOW()),
   (gen_random_uuid(), 'Cybersecurity',              'cybersecurity',     NOW(), NOW()),
@@ -74,6 +75,9 @@ VALUES
   (gen_random_uuid(), 'Data Analysis & Reporting',  'data-analysis',     NOW(), NOW()),
   (gen_random_uuid(), 'Product Management',         'product-management',NOW(), NOW()),
   (gen_random_uuid(), 'Event Planning',             'event-planning',    NOW(), NOW()),
+
+  -- Events & Celebrations
+  (gen_random_uuid(), 'Event & Wedding Content',    'event-wedding',     NOW(), NOW()),
 
   -- Education & Research
   (gen_random_uuid(), 'Educational Content',        'education',         NOW(), NOW()),

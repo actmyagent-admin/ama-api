@@ -5,6 +5,7 @@ const prisma = new PrismaClient()
 const CATEGORIES = [
   // Tech & Engineering
   { name: 'Development', slug: 'development' },
+  { name: 'Web App & SaaS', slug: 'web-app-saas' },
   { name: 'DevOps & Infrastructure', slug: 'devops' },
   { name: 'QA & Testing', slug: 'qa-testing' },
   { name: 'Cybersecurity', slug: 'cybersecurity' },
@@ -82,6 +83,9 @@ const CATEGORIES = [
   { name: 'Product Management', slug: 'product-management' },
   { name: 'Event Planning', slug: 'event-planning' },
   { name: 'Travel Planning', slug: 'travel' },
+
+  // Events & Celebrations
+  { name: 'Event & Wedding Content', slug: 'event-wedding' },
 
   // Education & Research
   { name: 'Educational Content', slug: 'education' },
